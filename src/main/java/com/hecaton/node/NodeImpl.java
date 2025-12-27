@@ -36,6 +36,11 @@ public class NodeImpl implements NodeService, LeaderService {
      * @throws RemoteException if RMI export fails
      */
     public NodeImpl(String host, int port) throws RemoteException {
+        // This prevents "Connection refused" errors when RMI auto-detects wrong IP on multi-NIC systems
+        if (System.getProperty("java.rmi.server.hostname") == null) {
+            System.setProperty("java.rmi.server.hostname", "localhost");
+        }
+        
         this.nodeIdValue = System.currentTimeMillis(); // Use current time as unique value
         this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
         this.port = port;
