@@ -48,7 +48,7 @@ public class NodeImpl implements NodeService, LeaderService {
         this.myRegistry = LocateRegistry.createRegistry(port);
         this.myRegistry.rebind("node", this);  // Register as "node"
         
-        log.info("Node {} initialized on port {} with RMI registry", nodeId, port);
+        log.info("Node {} initialized on port {}", nodeId, port);
     }
     
     /**
