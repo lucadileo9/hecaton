@@ -66,7 +66,11 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>com.hecaton.cli.Main</mainClass>
+                    <!-- Include test classpath so we can run test classes -->
+                    <classpathScope>test</classpathScope>
+                    <!-- No default mainClass - must be specified via -Dexec.mainClass
+                         We have multiple main classes for different components/tests,
+                         so the user must specify which one to run -->
                 </configuration>
             </plugin>
 
