@@ -38,9 +38,9 @@ public class TestWorkerNode {
         worker.joinCluster("localhost", 5001);
         
         System.out.println();
-        System.out.println("✓ Worker node running on port 5002");
-        System.out.println("✓ Connected to Leader at localhost:5001");
-        System.out.println("✓ Registration complete");
+        System.out.println("[OK] Worker node running on port 5002");
+        System.out.println("[OK] Connected to Leader at localhost:5001");
+        System.out.println("[OK] Registration complete");
         System.out.println();
         System.out.println("Check Leader's terminal for 'New node registered' message");
         System.out.println("Press Ctrl+C to stop");

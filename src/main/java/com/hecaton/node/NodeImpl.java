@@ -65,8 +65,8 @@ public class NodeImpl implements NodeService, LeaderService {
         // Bind as "leader" in addition to "node" (registry already exists from constructor)
         myRegistry.rebind("leader", this);
         
-        log.info("✓ Node {} started as LEADER on port {}", nodeId, port);
-        log.info("✓ Cluster size: {} node(s)", registeredNodes.size());
+        log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
+        log.info("[OK] Cluster size: {} node(s)", registeredNodes.size());
     }
     
     /**
@@ -87,7 +87,7 @@ public class NodeImpl implements NodeService, LeaderService {
         // Register with Leader (Leader will store reference to our "node" binding)
         leader.registerNode(this);
         
-        log.info("✓ Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
+        log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
     }
     
     // ==================== NodeService Implementation ====================
@@ -127,7 +127,7 @@ public class NodeImpl implements NodeService, LeaderService {
         }
         
         registeredNodes.add(node);
-        log.info("✓ New node registered: {} (Total: {} nodes)", newNodeId, registeredNodes.size());
+        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, registeredNodes.size());
     }
     
     @Override

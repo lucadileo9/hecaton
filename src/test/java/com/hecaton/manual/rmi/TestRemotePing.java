@@ -43,13 +43,13 @@ public class TestRemotePing {
             // Step 1: Connect to Leader's RMI registry
             System.out.println("1. Connecting to Leader's RMI registry on localhost:5001...");
             Registry registry = LocateRegistry.getRegistry("localhost", 5001);
-            System.out.println("   ✓ Connected to registry");
+            System.out.println("   [OK] Connected to registry");
             System.out.println();
             
             // Step 2: Lookup Leader service (we are searching for "leader")
             System.out.println("2. Looking up 'leader' service...");
             NodeService leader = (NodeService) registry.lookup("leader");
-            System.out.println("   ✓ Leader service found");
+            System.out.println("   [OK] Leader service found");
             System.out.println();
             
             // Now we have the LeaderService stub, so we can call ALL its methods remotely, let's try
@@ -57,23 +57,23 @@ public class TestRemotePing {
             // Step 3: Call ping() remotely
             System.out.println("3. Calling ping() method remotely...");
             boolean result = leader.ping();
-            System.out.println("   ✓ Ping successful: " + result);
+            System.out.println("   [OK] Ping successful: " + result);
             System.out.println();
             
             // Step 4: Get Leader's ID
             System.out.println("4. Getting Leader's ID...");
             String leaderId = leader.getId();
-            System.out.println("   ✓ Leader ID: " + leaderId);
+            System.out.println("   [OK] Leader ID: " + leaderId);
             System.out.println();
             
             // Step 5: Get Leader's status
             System.out.println("5. Getting Leader's status...");
             String status = leader.getStatus();
-            System.out.println("   ✓ Leader status: " + status);
+            System.out.println("   [OK] Leader status: " + status);
             System.out.println();
             
             System.out.println("========================================");
-            System.out.println("  ✓ ALL RMI CALLS SUCCESSFUL");
+            System.out.println("  [OK] ALL RMI CALLS SUCCESSFUL");
             System.out.println("========================================");
             
         } catch (Exception e) {

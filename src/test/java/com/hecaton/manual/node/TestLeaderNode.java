@@ -32,9 +32,9 @@ public class TestLeaderNode {
         leader.startAsLeader();
         
         System.out.println();
-        System.out.println("✓ Leader node running on port 5001");
-        System.out.println("✓ RMI registry created");
-        System.out.println("✓ Cluster size: " + leader.getClusterSize());
+        System.out.println("[OK] Leader node running on port 5001");
+        System.out.println("[OK] RMI registry created");
+        System.out.println("[OK] Cluster size: " + leader.getClusterSize());
         System.out.println();
         System.out.println("Press Ctrl+C to stop");
         System.out.println();

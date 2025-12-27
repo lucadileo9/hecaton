@@ -38,9 +38,9 @@ public class TestThreeNodeCluster {
         worker2.joinCluster("localhost", 5001);
         
         System.out.println();
-        System.out.println("✓ Worker 2 running on port 5003");
-        System.out.println("✓ Connected to Leader at localhost:5001");
-        System.out.println("✓ Cluster now has 3 nodes (1 Leader + 2 Workers)");
+        System.out.println("[OK] Worker 2 running on port 5003");
+        System.out.println("[OK] Connected to Leader at localhost:5001");
+        System.out.println("[OK] Cluster now has 3 nodes (1 Leader + 2 Workers)");
         System.out.println();
         System.out.println("Check Leader's terminal for 'Total: 3 nodes' message");
         System.out.println("Press Ctrl+C to stop");

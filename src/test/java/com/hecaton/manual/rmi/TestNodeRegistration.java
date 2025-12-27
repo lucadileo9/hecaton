@@ -43,21 +43,21 @@ public class TestNodeRegistration {
             // Step 1: Create temporary Worker node
             System.out.println("1. Creating temporary Worker node on port 6000...");
             NodeImpl tempWorker = new NodeImpl("localhost", 6000);
-            System.out.println("   ✓ Worker node created");
-            System.out.println("   ✓ Worker ID: " + tempWorker.getId());
+            System.out.println("   [OK] Worker node created");
+            System.out.println("   [OK] Worker ID: " + tempWorker.getId());
             System.out.println();
             
             // Step 2: Connect to Leader's registry
             System.out.println("2. Connecting to Leader's RMI registry...");
             Registry registry = LocateRegistry.getRegistry("localhost", 5001);
             LeaderService leader = (LeaderService) registry.lookup("leader");
-            System.out.println("   ✓ Connected to Leader");
+            System.out.println("   [OK} Connected to Leader");
             System.out.println();
             
             // Step 3: Register Worker with Leader
             System.out.println("3. Registering Worker with Leader...");
             leader.registerNode(tempWorker);
-            System.out.println("   ✓ Registration successful");
+            System.out.println("   [OK} Registration successful");
             System.out.println();
             
             // Step 4: Verify (check Leader's logs for confirmation)
@@ -72,7 +72,7 @@ public class TestNodeRegistration {
             System.in.read();
             
             System.out.println("========================================");
-            System.out.println("  ✓ REGISTRATION TEST COMPLETE");
+            System.out.println("  [OK} REGISTRATION TEST COMPLETE");
             System.out.println("========================================");
             System.out.println();
             System.out.println("Note: Temporary worker will exit now.");
@@ -81,7 +81,7 @@ public class TestNodeRegistration {
             
         } catch (Exception e) {
             System.err.println();
-            System.err.println("❌ TEST FAILED: " + e.getMessage());
+            System.err.println("TEST FAILED: " + e.getMessage());
             System.err.println();
             e.printStackTrace();
             System.exit(1);
