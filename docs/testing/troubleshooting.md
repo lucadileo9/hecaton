@@ -4,6 +4,99 @@ Common issues encountered during Hecaton development and their solutions.
 
 ---
 
+## RemoteException occurred in server thread;
+### Problem
+
+When starting a the registration test, the test fails.
+
+**Error message:**
+```
+TEST FAILED: RemoteException occurred in server thread; nested exception is: 
+        java.rmi.ConnectException: Connection refused to host: localhost; nested exception is:
+        java.net.ConnectException: Connection refused: connect
+
+java.rmi.ServerException: RemoteException occurred in server thread; nested exception is:
+        java.rmi.ConnectException: Connection refused to host: localhost; nested exception is:
+        java.net.ConnectException: Connection refused: connect
+        at java.rmi/sun.rmi.server.UnicastServerRef.dispatch(UnicastServerRef.java:392)
+        at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:200)
+        at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:197)
+        at java.base/java.security.AccessController.doPrivileged(AccessController.java:712)
+        at java.rmi/sun.rmi.transport.Transport.serviceCall(Transport.java:196)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport.handleMessages(TCPTransport.java:587)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run0(TCPTransport.java:828)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.lambda$run$0(TCPTransport.java:705)
+        at java.base/java.security.AccessController.doPrivileged(AccessController.java:399)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run(TCPTransport.java:704)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+        at java.base/java.lang.Thread.run(Thread.java:842)
+        at java.rmi/sun.rmi.transport.StreamRemoteCall.exceptionReceivedFromServer(StreamRemoteCall.java:304)
+        at java.rmi/sun.rmi.transport.StreamRemoteCall.executeCall(StreamRemoteCall.java:280)
+        at java.rmi/sun.rmi.server.UnicastRef.invoke(UnicastRef.java:165)
+        at java.rmi/java.rmi.server.RemoteObjectInvocationHandler.invokeRemoteMethod(RemoteObjectInvocationHandler.java:215) 
+        at java.rmi/java.rmi.server.RemoteObjectInvocationHandler.invoke(RemoteObjectInvocationHandler.java:160)
+        at jdk.proxy3/jdk.proxy3.$Proxy27.registerNode(Unknown Source)
+        at com.hecaton.manual.rmi.TestNodeRegistration.main(TestNodeRegistration.java:59)
+        at org.codehaus.mojo.exec.ExecJavaMojo$1.run(ExecJavaMojo.java:279)
+        at java.base/java.lang.Thread.run(Thread.java:842)
+Caused by: java.rmi.ConnectException: Connection refused to host: localhost; nested exception is:
+        java.net.ConnectException: Connection refused: connect
+        at java.rmi/sun.rmi.transport.tcp.TCPEndpoint.newSocket(TCPEndpoint.java:626)
+        at java.rmi/sun.rmi.transport.tcp.TCPChannel.createConnection(TCPChannel.java:217)
+        at java.rmi/sun.rmi.transport.tcp.TCPChannel.newConnection(TCPChannel.java:204)
+        at java.rmi/sun.rmi.server.UnicastRef.invoke(UnicastRef.java:133)
+        at java.rmi/java.rmi.server.RemoteObjectInvocationHandler.invokeRemoteMethod(RemoteObjectInvocationHandler.java:215) 
+        at java.rmi/java.rmi.server.RemoteObjectInvocationHandler.invoke(RemoteObjectInvocationHandler.java:160)
+        at jdk.proxy3/jdk.proxy3.$Proxy27.getId(Unknown Source)
+        at com.hecaton.discovery.DiscoveryService.addNode(DiscoveryService.java:35)
+        at com.hecaton.node.NodeImpl.registerNode(NodeImpl.java:129)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+        at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+        at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+        at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+        at java.rmi/sun.rmi.server.UnicastServerRef.dispatch(UnicastServerRef.java:360)
+        at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:200)
+        at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:197)
+        at java.base/java.security.AccessController.doPrivileged(AccessController.java:712)
+        at java.rmi/sun.rmi.transport.Transport.serviceCall(Transport.java:196)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport.handleMessages(TCPTransport.java:587)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run0(TCPTransport.java:828)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.lambda$run$0(TCPTransport.java:705)
+        at java.base/java.security.AccessController.doPrivileged(AccessController.java:399)
+        at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run(TCPTransport.java:704)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+        ... 1 more
+Caused by: java.net.ConnectException: Connection refused: connect
+        at java.base/sun.nio.ch.Net.connect0(Native Method)
+        at java.base/sun.nio.ch.Net.connect(Net.java:579)
+        at java.base/sun.nio.ch.Net.connect(Net.java:568)
+        at java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:593)
+        at java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)
+        at java.base/java.net.Socket.connect(Socket.java:633)
+        at java.base/java.net.Socket.connect(Socket.java:583)
+        at java.base/java.net.Socket.<init>(Socket.java:507)
+        at java.base/java.net.Socket.<init>(Socket.java:287)
+        at java.rmi/sun.rmi.transport.tcp.TCPDirectSocketFactory.createSocket(TCPDirectSocketFactory.java:40)
+        at java.rmi/sun.rmi.transport.tcp.TCPEndpoint.newSocket(TCPEndpoint.java:620)
+        ... 25 more
+```
+
+### Root Cause
+I think it is a problem of duplicate RMI registries, maybe the leader already has one running on the xxx port, and when the worker tries to connect, it fails. In fact it happen only the SECOND time I run the test, because the first time everything works fine.
+
+### Solution
+I don't know exactly why, but killing all java processes before running the test again seems to solve the problem. Maybe becasue in this way I reset the leader state completely.
+
+Since I don't think it is an important issue, I will not investigate further for now. Maybe thanks to the monitoring system we will never face this problem again.
+I hope so for you, future Luca.
+
+---
+
+
+
+
 ## Test Classes Not Found: exec:java Classpath Issue
 
 ### Problem
