@@ -28,7 +28,67 @@ Hecaton enables distributed computation by:
 
 ## High-Level Architecture
 
-[Insert diagram: Component Diagram - Architettura Package from DIAGRAMS_STRUCTURAL.md]
+```mermaid
+flowchart TB
+    subgraph hecaton ["📦 com.hecaton"]
+        subgraph cli ["cli"]
+            Main["Main.java"]
+            HecatonCLI["HecatonCLI.java"]
+        end
+        
+        subgraph rmi ["rmi"]
+            NodeService["NodeService.java"]
+            LeaderService["LeaderService.java"]
+        end
+        
+        subgraph node ["node"]
+            NodeImpl["NodeImpl.java"]
+            NodeBootstrap["NodeBootstrap.java"]
+        end
+        
+        subgraph discovery ["discovery"]
+            DiscoveryService["DiscoveryService.java"]
+        end
+        
+        subgraph monitor ["monitor"]
+            HeartbeatMonitor["HeartbeatMonitor.java"]
+        end
+        
+        subgraph election ["election"]
+            BullyElection["BullyElection.java"]
+            ElectionMessage["ElectionMessage.java"]
+        end
+        
+        subgraph task ["task"]
+            Task["Task.java"]
+            TaskResult["TaskResult.java"]
+            Job["Job.java"]
+            TaskExecutor["TaskExecutor.java"]
+            subgraph impl ["impl"]
+                DummyTask["DummyTask.java"]
+                PasswordCrackTask["PasswordCrackTask.java"]
+                PasswordCrackJob["PasswordCrackJob.java"]
+            end
+        end
+        
+        subgraph scheduler ["scheduler"]
+            TaskScheduler["TaskScheduler.java"]
+        end
+    end
+    
+    cli --> node
+    cli --> rmi
+    node --> rmi
+    node --> discovery
+    node --> monitor
+    node --> election
+    node --> scheduler
+    scheduler --> task
+    monitor --> rmi
+    election --> rmi
+    discovery --> rmi
+```
+
 
 ### Architectural Layers
 
@@ -84,7 +144,27 @@ The system is organized into logical layers:
 
 ## Deployment Topology
 
-[Insert diagram: Deployment Diagram - Stage 1: Local (Multi-Port) from DIAGRAMS_STRUCTURAL.md]
+```mermaid
+flowchart TB
+    subgraph LocalMachine ["🖥️ Single Computer (localhost)"]
+        subgraph JVM1 ["JVM 1 - port 5001"]
+            Leader["🟢 Leader Node\nRMI Registry :5001"]
+        end
+        
+        subgraph JVM2 ["JVM 2 - port 5002"]
+            Worker1["⚪ Worker Node A"]
+        end
+        
+        subgraph JVM3 ["JVM 3 - port 5003"]
+            Worker2["⚪ Worker Node B"]
+        end
+    end
+    
+    Worker1 -->|"RMI\nlocalhost:5001"| Leader
+    Worker2 -->|"RMI\nlocalhost:5001"| Leader
+    Worker1 -.->|"heartbeat"| Leader
+    Worker2 -.->|"heartbeat"| Leader
+```
 
 ### Current Stage: Local Multi-JVM
 
