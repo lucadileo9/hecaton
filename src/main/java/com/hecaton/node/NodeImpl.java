@@ -27,8 +27,10 @@ public class NodeImpl implements NodeService, LeaderService {
     private final int port;
     private boolean isLeader;
     private Registry myRegistry;  // Each node has its own RMI registry
+    
     // Discovery service (only for Leader)
     private DiscoveryService discoveryService;
+
     // Heartbeat monitor (only for Workers monitoring Leader)
     private HeartbeatMonitor leaderMonitor;
     // Reference to Leader (for Workers)
