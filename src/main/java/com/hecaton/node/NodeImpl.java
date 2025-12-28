@@ -1,5 +1,6 @@
 package com.hecaton.node;
 
+import com.hecaton.discovery.DiscoveryService;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
 import org.slf4j.Logger;
@@ -25,8 +26,8 @@ public class NodeImpl implements NodeService, LeaderService {
     private final int port;
     private boolean isLeader;
     private Registry myRegistry;  // Each node has its own RMI registry
-    // List of registered nodes (only for Leader)
-    private final List<NodeService> registeredNodes = new ArrayList<>();
+    // Discovery service (only for Leader)
+    private DiscoveryService discoveryService;
     
     /**
      * Creates a new node instance.
@@ -64,14 +65,17 @@ public class NodeImpl implements NodeService, LeaderService {
     public void startAsLeader() throws RemoteException {
         this.isLeader = true;
         
+        // Initialize discovery service
+        this.discoveryService = new DiscoveryService();
+        
         // Register itself as first node
-        registeredNodes.add(this);
+        discoveryService.addNode(this);
         
         // Bind as "leader" in addition to "node" (registry already exists from constructor)
         myRegistry.rebind("leader", this);
         
         log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
-        log.info("[OK] Cluster size: {} node(s)", registeredNodes.size());
+        log.info("[OK] Cluster size: {} node(s)", discoveryService.getClusterSize());
     }
     
     /**
@@ -121,18 +125,11 @@ public class NodeImpl implements NodeService, LeaderService {
             throw new RemoteException("This node is not the leader");
         }
         
+        // Delegate to discovery service (handles duplicate check internally)
+        discoveryService.addNode(node);
+        
         String newNodeId = node.getId();
-        
-        // Check for duplicates
-        for (NodeService existing : registeredNodes) {
-            if (existing.getId().equals(newNodeId)) {
-                log.warn("Node {} already registered", newNodeId);
-                return;
-            }
-        }
-        
-        registeredNodes.add(node);
-        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, registeredNodes.size());
+        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, discoveryService.getClusterSize());
     }
     
     @Override
@@ -153,6 +150,21 @@ public class NodeImpl implements NodeService, LeaderService {
      * @return Number of registered nodes
      */
     public int getClusterSize() {
-        return registeredNodes.size();
+        if (!isLeader || discoveryService == null) {
+            return 0;
+        }
+        return discoveryService.getClusterSize();
+    }
+    
+    /**
+     * Returns the list of registered nodes (Leader only).
+     * Used for task distribution and cluster management.
+     * @return Copy of active nodes list
+     */
+    public List<NodeService> getRegisteredNodes() {
+        if (!isLeader || discoveryService == null) {
+            return new ArrayList<>();
+        }
+        return discoveryService.getActiveNodes();
     }
 }
