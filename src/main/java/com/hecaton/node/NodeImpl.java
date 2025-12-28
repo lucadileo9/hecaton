@@ -1,6 +1,7 @@
 package com.hecaton.node;
 
 import com.hecaton.discovery.DiscoveryService;
+import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
 import org.slf4j.Logger;
@@ -28,6 +29,10 @@ public class NodeImpl implements NodeService, LeaderService {
     private Registry myRegistry;  // Each node has its own RMI registry
     // Discovery service (only for Leader)
     private DiscoveryService discoveryService;
+    // Heartbeat monitor (only for Workers monitoring Leader)
+    private HeartbeatMonitor leaderMonitor;
+    // Reference to Leader (for Workers)
+    private NodeService leaderNode;
     
     /**
      * Creates a new node instance.
@@ -92,11 +97,17 @@ public class NodeImpl implements NodeService, LeaderService {
         
         // Lookup Leader service in the Leader's registry
         LeaderService leader = (LeaderService) leaderRegistry.lookup("leader");
+        this.leaderNode = (NodeService) leader;  // Store reference for heartbeat
         
         // Register with Leader (Leader will store reference to our "node" binding)
         leader.registerNode(this);
         
         log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
+        
+        // Start monitoring Leader's health
+        leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, "Leader Monitor");
+        leaderMonitor.start();
+        log.info("[OK] Heartbeat monitoring started for Leader");
     }
     
     // ==================== NodeService Implementation ====================
@@ -166,5 +177,65 @@ public class NodeImpl implements NodeService, LeaderService {
             return new ArrayList<>();
         }
         return discoveryService.getActiveNodes();
+    }
+    
+    /**
+     * Callback invoked when the Leader is detected as dead.
+     * This triggers leader election protocol (to be implemented in Phase 2).
+     * @param deadLeader The Leader node that died
+     */
+    private void onLeaderDied(NodeService deadLeader) {
+        log.error("[ALERT] LEADER IS DEAD! Node {} no longer responding", getNodeIdSafe(deadLeader));
+        log.error("[TODO] Leader election will be implemented in Phase 2");
+        // TODO Phase 2: Start Bully Election algorithm
+        // BullyElection election = new BullyElection(nodeIdValue, nodeId, ...);
+        // election.startElection();
+    }
+    
+    /**
+     * Graceful shutdown of this node.
+     * Stops heartbeat monitoring and cleans up RMI resources.
+     * Great part of the job is handled by HeartbeatMonitor, in fact 
+     * we are just calling its stop() method here and then UNBINDING from RMI.
+     */
+    public void shutdown() {
+        log.info("Shutting down node {}...", nodeId);
+        
+        // Stop heartbeat monitoring if active
+        if (leaderMonitor != null) {
+            leaderMonitor.stop();
+        }
+        
+        // Unbind from RMI registry
+        try {
+            if (myRegistry != null) {
+                myRegistry.unbind("node");
+                if (isLeader) {
+                    myRegistry.unbind("leader");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error unbinding from registry: {}", e.getMessage());
+        }
+        
+        // Unexport RMI object
+        try {
+            UnicastRemoteObject.unexportObject(this, true);
+        } catch (Exception e) {
+            log.warn("Error unexporting RMI object: {}", e.getMessage());
+        }
+        
+        log.info("[OK] Node {} shut down cleanly", nodeId);
+    }
+    
+    /**
+     * Helper method to safely get node ID for logging.
+     */
+    private String getNodeIdSafe(NodeService node) {
+        try {
+            return node.getId();
+        } catch (RemoteException e) {
+            return "unknown-node";
+        }
     }
 }
