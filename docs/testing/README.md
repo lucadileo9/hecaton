@@ -42,6 +42,7 @@ mvn exec:java -Dexec.mainClass="com.hecaton.manual.<category>.<TestName>"
 ### Current (Phase 1)
 
 - **[RMI & Cluster Formation](rmi-cluster.md)** - Basic RMI communication, node registration, cluster setup
+- **[Heartbeat Monitoring](heartbeat.md)** - Heartbeat-based fault detection between Leader and Workers
 
 ### Future (Coming Soon)
 
@@ -146,4 +147,5 @@ When implementing new features:
 ## Documentation Index
 
 - [RMI & Cluster Formation](rmi-cluster.md) - Current implementation
+- [Heartbeat Monitoring](heartbeat.md) - Current implementation
 - Coming Soon... I hope 
