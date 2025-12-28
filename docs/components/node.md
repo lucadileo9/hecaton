@@ -102,7 +102,7 @@ public class NodeImpl implements NodeService, LeaderService {
     private String nodeId;                      // Unique identifier (e.g., "node-localhost-5001-1735315815123")
     private int port;                           // RMI registry port
     private boolean isLeader;                   // Current role (true = Leader, false = Worker)
-    private List<NodeService> registeredNodes;  // Cluster members (Leader only)
+    private DiscoveryService discoveryService;  // Cluster membership management (Leader only)
     private Registry myRegistry;                // Own RMI registry instance
     private long nodeIdValue;                   // Timestamp-based unique value
 }
@@ -178,9 +178,6 @@ public NodeImpl(String host, int port) throws RemoteException {
     // 4. Create own RMI Registry (Approach A)
     this.myRegistry = LocateRegistry.createRegistry(port);
     this.myRegistry.rebind("node", this);
-    
-    // 5. Initialize cluster member list
-    this.registeredNodes = new CopyOnWriteArrayList<>();
 }
 ```
 
@@ -280,14 +277,17 @@ public void joinCluster(String leaderHost, int leaderPort) throws RemoteExceptio
 public void startAsLeader() throws RemoteException {
     this.isLeader = true;
     
+    // Initialize discovery service
+    this.discoveryService = new DiscoveryService();
+    
     // Register self as first cluster member
-    this.registeredNodes.add(this);
+    discoveryService.addNode(this);
     
     // Bind as "leader" in RMI registry (in addition to "node")
     myRegistry.rebind("leader", this);
     
     log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
-    log.info("[OK] Cluster size: {} node(s)", registeredNodes.size());
+    log.info("[OK] Cluster size: {} node(s)", discoveryService.getClusterSize());
 }
 ```
 
@@ -359,21 +359,20 @@ public String getStatus() throws RemoteException {
 ```java
 @Override
 public void registerNode(NodeService node) throws RemoteException {
-    try {
-        String newNodeId = node.getId();
-        registeredNodes.add(node);
-        
-        log.info("[OK] New node registered: {} (Total: {} nodes)", 
-                 newNodeId, registeredNodes.size());
-        
-    } catch (RemoteException e) {
-        log.error("Failed to register node: {}", e.getMessage());
-        throw e;
+    if (!isLeader) {
+        throw new RemoteException("This node is not the leader");
     }
+    
+    // Delegate to discovery service (handles duplicate check internally)
+    discoveryService.addNode(node);
+    
+    String newNodeId = node.getId();
+    log.info("[OK] New node registered: {} (Total: {} nodes)", 
+             newNodeId, discoveryService.getClusterSize());
 }
 ```
 
-**Concurrency Safety**: Uses `CopyOnWriteArrayList` to handle concurrent registration from multiple Workers.
+**Delegation Pattern**: NodeImpl delegates cluster membership management to DiscoveryService, which uses `CopyOnWriteArrayList` for thread-safe concurrent access.
 
 **Important**: The `node` parameter is an **RMI stub**, not a local object. Calling `node.getId()` triggers a remote method invocation.
 
@@ -411,19 +410,20 @@ public boolean requestElection(String candidateId) throws RemoteException {
 
 ### Leader's Responsibility
 
-The Leader maintains the authoritative list of active nodes:
+The Leader delegates cluster membership management to DiscoveryService:
 
 ```java
-private List<NodeService> registeredNodes = new CopyOnWriteArrayList<>();
+private DiscoveryService discoveryService;  // Initialized in startAsLeader()
 ```
 
 **Operations**:
 
 | Method | Purpose |
-|--------|---------|
-| `registerNode(NodeService)` | Add new Worker to cluster |
-| `getClusterSize()` | Return count of active nodes |
-| `getRegisteredNodes()` | Return list of all nodes (for task distribution) |
+|--------|---------||
+| `registerNode(NodeService)` | Delegates to `discoveryService.addNode()` |
+| `getClusterSize()` | Returns `discoveryService.getClusterSize()` |
+| `getRegisteredNodes()` | Returns `discoveryService.getActiveNodes()` (copy) |
+| `removeNode(NodeService)` | Delegates to `discoveryService.removeNode()` (used by heartbeat) |
 
 ### Worker's Perspective
 
