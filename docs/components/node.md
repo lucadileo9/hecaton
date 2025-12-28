@@ -60,13 +60,13 @@ classDiagram
     }
     
     class HeartbeatMonitor {
-        -Map~NodeService, Integer~ missedHeartbeats
+        -int missedHeartbeats
         -ScheduledExecutorService scheduler
         -int intervalMs
         -int maxMissed
         +HeartbeatMonitor(int interval, int maxMissed)
-        +startMonitoring(NodeService node) void
-        +stopMonitoring(NodeService node) void
+        +start() void
+        +stop() void
         +onNodeDead(Consumer~NodeService~ callback) void
     }
     
@@ -105,6 +105,10 @@ public class NodeImpl implements NodeService, LeaderService {
     private DiscoveryService discoveryService;  // Cluster membership management (Leader only)
     private Registry myRegistry;                // Own RMI registry instance
     private long nodeIdValue;                   // Timestamp-based unique value
+    
+    // Heartbeat monitoring (Worker only)
+    private HeartbeatMonitor leaderMonitor;     // Monitors Leader health
+    private NodeService leaderNode;             // Reference to Leader for callbacks
 }
 ```
 
@@ -248,11 +252,17 @@ public void joinCluster(String leaderHost, int leaderPort) throws RemoteExceptio
     
     // 2. Lookup Leader service
     LeaderService leader = (LeaderService) leaderRegistry.lookup("leader");
+    this.leaderNode = (NodeService) leader;  // Store reference for heartbeat
     
     // 3. Register with Leader (pass own RMI stub)
     leader.registerNode(this);
     
     log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
+    
+    // 4. Start monitoring Leader health
+    leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, "Leader Monitor");
+    leaderMonitor.start();
+    log.info("[OK] Heartbeat monitoring started for Leader");
 }
 ```
 
@@ -436,6 +446,43 @@ Workers **do not** maintain cluster membership—they only know the Leader.
 
 **Future Enhancement** (Phase 7):
 Leader broadcasts node list to all Workers for peer-to-peer communication.
+
+---
+
+## Heartbeat Monitoring
+
+Workers automatically monitor Leader health using **HeartbeatMonitor** component.
+
+**Quick Summary**:
+- Workers ping Leader every **5 seconds**
+- **3 consecutive failures** = Leader declared dead (~15 seconds total)
+- Triggers `onLeaderDied()` callback → leader election (Phase 2)
+
+**Integration Points**:
+
+```java
+// Initialized in joinCluster()
+private HeartbeatMonitor leaderMonitor;
+private NodeService leaderNode;
+
+// Callback when Leader dies
+private void onLeaderDied(NodeService deadLeader) {
+    log.error("[ALERT] LEADER IS DEAD!");
+    // TODO Phase 2: Start Bully Election
+}
+
+// Cleanup on shutdown
+public void shutdown() {
+    if (leaderMonitor != null) {
+        leaderMonitor.stop();
+    }
+    // ... RMI cleanup ...
+}
+```
+
+**For complete documentation**, see:
+- **Architecture & Design**: [HeartbeatMonitor Component](heartbeat.md)
+- **Testing Procedures**: [Heartbeat Testing Guide](../testing/heartbeat.md)
 
 ---
 
