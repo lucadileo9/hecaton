@@ -435,6 +435,8 @@ private DiscoveryService discoveryService;  // Initialized in startAsLeader()
 | `getRegisteredNodes()` | Returns `discoveryService.getActiveNodes()` (copy) |
 | `removeNode(NodeService)` | Delegates to `discoveryService.removeNode()` (used by heartbeat) |
 
+> **📖 Per approfondimenti**: Vedi [DiscoveryService Component](discovery.md) per architettura dettagliata, thread safety scenarios, performance characteristics e API reference completa.
+
 ### Worker's Perspective
 
 Workers **do not** maintain cluster membership—they only know the Leader.
