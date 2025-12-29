@@ -10,11 +10,14 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Manages cluster membership and node discovery.
+ * Manages cluster membership registry (list of active nodes).
  * Thread-safe with CopyOnWriteArrayList for concurrent access during heartbeat monitoring.
+ * 
+ * NOTE: This service manages the MEMBERSHIP LIST (which nodes are in the cluster).
+ * For automatic DISCOVERY (finding the Leader), see UdpDiscoveryService.
  */
-public class DiscoveryService {
-    private static final Logger log = LoggerFactory.getLogger(DiscoveryService.class);
+public class ClusterMembershipService {
+    private static final Logger log = LoggerFactory.getLogger(ClusterMembershipService.class);
     
     // CopyOnWriteArrayList: safe for concurrent reads (heartbeat pings)
     // Writes create a copy, so performance trade-off acceptable for small clusters

@@ -1,6 +1,6 @@
 package com.hecaton.node;
 
-import com.hecaton.discovery.DiscoveryService;
+import com.hecaton.discovery.ClusterMembershipService;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
@@ -28,8 +28,8 @@ public class NodeImpl implements NodeService, LeaderService {
     private boolean isLeader;
     private Registry myRegistry;  // Each node has its own RMI registry
     
-    // Discovery service (only for Leader)
-    private DiscoveryService discoveryService;
+    // Cluster membership registry (only for Leader)
+    private ClusterMembershipService membershipService;
 
     // Heartbeat monitor (only for Workers monitoring Leader)
     private HeartbeatMonitor leaderMonitor;
@@ -72,17 +72,17 @@ public class NodeImpl implements NodeService, LeaderService {
     public void startAsLeader() throws RemoteException {
         this.isLeader = true;
         
-        // Initialize discovery service
-        this.discoveryService = new DiscoveryService();
+        // Initialize cluster membership service
+        this.membershipService = new ClusterMembershipService();
         
         // Register itself as first node
-        discoveryService.addNode(this);
+        membershipService.addNode(this);
         
         // Bind as "leader" in addition to "node" (registry already exists from constructor)
         myRegistry.rebind("leader", this);
         
         log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
-        log.info("[OK] Cluster size: {} node(s)", discoveryService.getClusterSize());
+        log.info("[OK] Cluster size: {} node(s)", membershipService.getClusterSize());
     }
     
     /**
@@ -138,11 +138,11 @@ public class NodeImpl implements NodeService, LeaderService {
             throw new RemoteException("This node is not the leader");
         }
         
-        // Delegate to discovery service (handles duplicate check internally)
-        discoveryService.addNode(node);
+        // Delegate to membership service (handles duplicate check internally)
+        membershipService.addNode(node);
         
         String newNodeId = node.getId();
-        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, discoveryService.getClusterSize());
+        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, membershipService.getClusterSize());
     }
     
     @Override
@@ -163,10 +163,10 @@ public class NodeImpl implements NodeService, LeaderService {
      * @return Number of registered nodes
      */
     public int getClusterSize() {
-        if (!isLeader || discoveryService == null) {
+        if (!isLeader || membershipService == null) {
             return 0;
         }
-        return discoveryService.getClusterSize();
+        return membershipService.getClusterSize();
     }
     
     /**
@@ -175,10 +175,10 @@ public class NodeImpl implements NodeService, LeaderService {
      * @return Copy of active nodes list
      */
     public List<NodeService> getRegisteredNodes() {
-        if (!isLeader || discoveryService == null) {
+        if (!isLeader || membershipService == null) {
             return new ArrayList<>();
         }
-        return discoveryService.getActiveNodes();
+        return membershipService.getActiveNodes();
     }
     
     /**
