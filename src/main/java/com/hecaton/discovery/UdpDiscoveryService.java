@@ -24,8 +24,10 @@ import java.util.concurrent.*;
  * 
  * Fallback Strategy:
  * If UDP discovery fails (firewall, port conflict), manual join via `--join host:port` still works.
+ * 
+ * @see LeaderDiscoveryStrategy
  */
-public class UdpDiscoveryService {
+public class UdpDiscoveryService implements LeaderDiscoveryStrategy {
     private static final Logger log = LoggerFactory.getLogger(UdpDiscoveryService.class);
     
     // UDP broadcast configuration
@@ -166,6 +168,7 @@ public class UdpDiscoveryService {
      * @return NodeInfo of discovered Leader, or null if timeout
      * @throws Exception if UDP socket creation fails or deserialization error
      */
+    @Override
     public NodeInfo discoverLeader(int timeoutMs) throws Exception {
         log.info("Listening for Leader announcements (timeout: {}ms)...", timeoutMs);
         
@@ -218,6 +221,7 @@ public class UdpDiscoveryService {
      * Stops the broadcaster (Leader mode) and releases UDP socket.
      * Idempotent - safe to call multiple times.
      */
+    @Override
     public void shutdown() {
         if (isBroadcasting) {
             log.info("Shutting down UDP broadcaster...");
