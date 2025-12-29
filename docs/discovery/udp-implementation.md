@@ -627,7 +627,7 @@ NodeImpl.startAsLeader()
                       └─ Repeat...
 ```
 
-#### Worker Discovery Sequence
+#### Worker Discovery Sequence - Low Level View
 
 ```mermaid
 sequenceDiagram
