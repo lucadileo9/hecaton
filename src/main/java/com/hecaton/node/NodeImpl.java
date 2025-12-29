@@ -1,6 +1,9 @@
 package com.hecaton.node;
 
-import com.hecaton.discovery.DiscoveryService;
+import com.hecaton.discovery.ClusterMembershipService;
+import com.hecaton.discovery.LeaderDiscoveryStrategy;
+import com.hecaton.discovery.NodeInfo;
+import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
@@ -28,8 +31,11 @@ public class NodeImpl implements NodeService, LeaderService {
     private boolean isLeader;
     private Registry myRegistry;  // Each node has its own RMI registry
     
-    // Discovery service (only for Leader)
-    private DiscoveryService discoveryService;
+    // Cluster membership registry (only for Leader)
+    private ClusterMembershipService membershipService;
+    
+    // Leader discovery strategy
+    private LeaderDiscoveryStrategy discoveryStrategy;
 
     // Heartbeat monitor (only for Workers monitoring Leader)
     private HeartbeatMonitor leaderMonitor;
@@ -72,17 +78,28 @@ public class NodeImpl implements NodeService, LeaderService {
     public void startAsLeader() throws RemoteException {
         this.isLeader = true;
         
-        // Initialize discovery service
-        this.discoveryService = new DiscoveryService();
+        // Initialize cluster membership service
+        this.membershipService = new ClusterMembershipService();
         
         // Register itself as first node
-        discoveryService.addNode(this);
+        membershipService.addNode(this);
         
         // Bind as "leader" in addition to "node" (registry already exists from constructor)
         myRegistry.rebind("leader", this);
         
+        // Start UDP broadcaster for automatic discovery
+        try {
+            this.discoveryStrategy = new UdpDiscoveryService(this.port, this.nodeId);
+            ((UdpDiscoveryService) discoveryStrategy).startBroadcaster();
+            log.info("[OK] UDP broadcaster started on port 6789");
+        } catch (Exception e) {
+            log.warn("UDP broadcaster disabled (port conflict): {}", e.getMessage());
+            log.warn("  Workers must use manual --join host:port");
+            // Continue without UDP - manual join still works
+        }
+        
         log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
-        log.info("[OK] Cluster size: {} node(s)", discoveryService.getClusterSize());
+        log.info("[OK] Cluster size: {} node(s)", membershipService.getClusterSize());
     }
     
     /**
@@ -112,6 +129,35 @@ public class NodeImpl implements NodeService, LeaderService {
         log.info("[OK] Heartbeat monitoring started for Leader");
     }
     
+    /**
+     * Automatically discovers and joins the cluster using the configured discovery strategy.
+     * Uses UDP broadcast by default to find the Leader without manual configuration.
+     * Falls back to throwing exception if discovery fails.
+     * 
+     * @throws Exception if Leader not found or connection fails
+     */
+    public void autoJoinCluster() throws Exception {
+        log.info("Starting automatic Leader discovery...");
+        
+        // Use UDP discovery strategy by default
+        this.discoveryStrategy = new UdpDiscoveryService();
+        
+        // Discover Leader (blocks until found or timeout)
+        NodeInfo leader = discoveryStrategy.discoverLeader(5000);
+        
+        if (leader == null) {
+            throw new Exception("No Leader found via UDP discovery (timeout 5000ms). " +
+                              "Possible causes: No Leader running, firewall blocking UDP, " +
+                              "not on same network. Try manual join: --join host:port");
+        }
+        
+        log.info("[OK] Discovered Leader: {} at {}:{}", 
+                 leader.getNodeId(), leader.getHost(), leader.getPort());
+        
+        // Use existing join method to complete connection
+        joinCluster(leader.getHost(), leader.getPort());
+    }
+    
     // ==================== NodeService Implementation ====================
     
     @Override
@@ -138,11 +184,11 @@ public class NodeImpl implements NodeService, LeaderService {
             throw new RemoteException("This node is not the leader");
         }
         
-        // Delegate to discovery service (handles duplicate check internally)
-        discoveryService.addNode(node);
+        // Delegate to membership service (handles duplicate check internally)
+        membershipService.addNode(node);
         
         String newNodeId = node.getId();
-        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, discoveryService.getClusterSize());
+        log.info("[OK] New node registered: {} (Total: {} nodes)", newNodeId, membershipService.getClusterSize());
     }
     
     @Override
@@ -163,10 +209,10 @@ public class NodeImpl implements NodeService, LeaderService {
      * @return Number of registered nodes
      */
     public int getClusterSize() {
-        if (!isLeader || discoveryService == null) {
+        if (!isLeader || membershipService == null) {
             return 0;
         }
-        return discoveryService.getClusterSize();
+        return membershipService.getClusterSize();
     }
     
     /**
@@ -175,10 +221,10 @@ public class NodeImpl implements NodeService, LeaderService {
      * @return Copy of active nodes list
      */
     public List<NodeService> getRegisteredNodes() {
-        if (!isLeader || discoveryService == null) {
+        if (!isLeader || membershipService == null) {
             return new ArrayList<>();
         }
-        return discoveryService.getActiveNodes();
+        return membershipService.getActiveNodes();
     }
     
     /**
@@ -206,6 +252,11 @@ public class NodeImpl implements NodeService, LeaderService {
         // Stop heartbeat monitoring if active
         if (leaderMonitor != null) {
             leaderMonitor.stop();
+        }
+        
+        // Shutdown discovery strategy if active
+        if (discoveryStrategy != null) {
+            discoveryStrategy.shutdown();
         }
         
         // Unbind from RMI registry

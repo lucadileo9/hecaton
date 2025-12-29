@@ -1,8 +1,10 @@
-# DiscoveryService Component
+# ClusterMembershipService Component
 
 ## Overview
 
-**DiscoveryService** is the component responsible for managing cluster membership in the Hecaton system. It maintains a thread-safe list of all active Worker nodes registered with the Leader.
+**ClusterMembershipService** (formerly `membershipService`) is the component responsible for managing cluster membership in the Hecaton system. It maintains a thread-safe list of all active Worker nodes registered with the Leader.
+
+**Important distinction**: This service manages the **membership list** (which nodes are in the cluster), not **Leader discovery** (how Workers find the Leader initially). See [Discovery Overview](../discovery/overview.md) for Leader discovery mechanisms.
 
 ### Responsibilities
 
@@ -19,7 +21,7 @@
 │  ┌───────────────────────────────┐  │
 │  │     NodeImpl (Leader)         │  │
 │  │  ┌─────────────────────────┐  │  │
-│  │  │  DiscoveryService       │  │  │
+│  │  │  membershipService       │  │  │
 │  │  │                         │  │  │
 │  │  │  activeNodes:           │  │  │
 │  │  │   CopyOnWriteArrayList  │  │  │
@@ -36,7 +38,7 @@ Worker 1    Worker 2       Worker 3
 
 ```
 
-**DiscoveryService** is an internal component of the Leader Node—it is not exposed via RMI. Workers interact with discovery only indirectly via the `registerNode()` RMI calls of the LeaderService.
+**membershipService** is an internal component of the Leader Node—it is not exposed via RMI. Workers interact with discovery only indirectly via the `registerNode()` RMI calls of the LeaderService.
 
 ## Architecture
 
@@ -236,10 +238,10 @@ public void registerNode(NodeService node) throws RemoteException {
     String nodeId = node.getId();
     log.info("Registration request from node: {}", nodeId);
     
-    // DiscoveryService handles duplicate detection
-    discoveryService.addNode(node);
+    // membershipService handles duplicate detection
+    membershipService.addNode(node);
     
-    int totalNodes = discoveryService.getActiveNodes().size();
+    int totalNodes = membershipService.getActiveNodes().size();
     log.info("[OK] New node registered: {} (Total: {} nodes)", nodeId, totalNodes);
 }
 
@@ -248,8 +250,8 @@ public void registerNode(NodeService node) throws RemoteException {
 **Flow**:
 
 1. Worker calls `leader.registerNode(workerStub)`.
-2. Leader delegates to `discoveryService.addNode()`.
-3. DiscoveryService checks for duplicates (via node ID).
+2. Leader delegates to `membershipService.addNode()`.
+3. membershipService checks for duplicates (via node ID).
 4. If new, it adds it to `activeNodes`.
 5. Leader confirms registration.
 
@@ -260,15 +262,15 @@ public void registerNode(NodeService node) throws RemoteException {
 ```java
 // NodeImpl (Leader) - onWorkerDied() callback
 private void onWorkerDied(NodeService deadWorker) {
-    String deadNodeId = discoveryService.getNodeIdSafe(deadWorker);
+    String deadNodeId = membershipService.getNodeIdSafe(deadWorker);
     log.error("[ALERT] WORKER {} IS DEAD!", deadNodeId);
     
     // Remove from active nodes
-    boolean removed = discoveryService.removeNode(deadWorker);
+    boolean removed = membershipService.removeNode(deadWorker);
     
     if (removed) {
         log.info("Dead worker removed from cluster (remaining: {})", 
-                 discoveryService.getActiveNodes().size());
+                 membershipService.getActiveNodes().size());
         // TODO Phase 3: Reassign tasks from dead worker
     }
 }
@@ -279,7 +281,7 @@ private void onWorkerDied(NodeService deadWorker) {
 
 1. HeartbeatMonitor detects 3 consecutive failed pings.
 2. Invokes `onWorkerDied(deadWorkerStub)` callback.
-3. Leader removes node from DiscoveryService.
+3. Leader removes node from membershipService.
 4. Future: Reassign tasks from the dead Worker to other nodes.
 
 ### Scenario 3: Iterating Active Nodes (Thread-Safe)
@@ -288,7 +290,7 @@ private void onWorkerDied(NodeService deadWorker) {
 
 ```java
 // Safe iteration - snapshot semantics
-List<NodeService> nodes = discoveryService.getActiveNodes();
+List<NodeService> nodes = membershipService.getActiveNodes();
 
 for (NodeService worker : nodes) {
     try {
@@ -313,7 +315,7 @@ for (NodeService worker : nodes) {
 
 ### Constants
 
-No explicit configuration—DiscoveryService uses `CopyOnWriteArrayList` defaults.
+No explicit configuration—membershipService uses `CopyOnWriteArrayList` defaults.
 
 **Initial Capacity**: 10 elements (ArrayList default)
 **Growth Strategy**: 1.5x expansion when capacity is exceeded
@@ -368,15 +370,15 @@ If `getId()` fails during duplicate check:
 
 ### NodeImpl (Leader Mode)
 
-NodeImpl uses DiscoveryService to implement LeaderService:
+NodeImpl uses membershipService to implement LeaderService:
 
 ```java
 public class NodeImpl extends UnicastRemoteObject implements NodeService, LeaderService {
-    private final DiscoveryService discoveryService;  // Leader only
+    private final membershipService membershipService;  // Leader only
     
     public void startAsLeader() throws RemoteException {
         this.isLeader = true;
-        this.discoveryService = new DiscoveryService();
+        this.membershipService = new membershipService();
         
         myRegistry.rebind("leader", this);
         log.info("[OK] Node {} started as LEADER", nodeId);
@@ -384,7 +386,7 @@ public class NodeImpl extends UnicastRemoteObject implements NodeService, Leader
     
     @Override
     public void registerNode(NodeService node) throws RemoteException {
-        discoveryService.addNode(node);
+        membershipService.addNode(node);
         // TODO Phase 3: Start HeartbeatMonitor for this worker
     }
 }
@@ -396,12 +398,13 @@ This is a simple component—most functionality is verified via integration test
 
 ## Related Documentation
 
-* [NodeImpl Component](https://www.google.com/search?q=node.md) - DiscoveryService integration in the Leader.
+* [NodeImpl Component](https://www.google.com/search?q=node.md) - membershipService integration in the Leader.
 * [HeartbeatMonitor Component](https://www.google.com/search?q=heartbeat.md) - Node death detection.
 * [Testing Guide](https://www.google.com/search?q=../testing/README.md) - Testing procedures.
 
 ## Code Location
 
-**Source File**: `src/main/java/com/hecaton/discovery/DiscoveryService.java`
+**Source File**: `src/main/java/com/hecaton/discovery/membershipService.java`
 **Test File**: N/A (functionality tested via integration tests in `src/test/java/com/hecaton/manual/`)
 **Config**: `src/main/resources/logback.xml` (logging levels)
+

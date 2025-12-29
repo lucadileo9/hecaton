@@ -33,14 +33,15 @@ classDiagram
         -String nodeId
         -int port
         -boolean isLeader
-        -List~NodeService~ registeredNodes
-        -DiscoveryService discoveryService
-        -HeartbeatMonitor heartbeatMonitor
+        -ClusterMembershipService membershipService
+        -LeaderDiscoveryStrategy discoveryStrategy
+        -HeartbeatMonitor leaderMonitor
         -BullyElection election
         -TaskExecutor taskExecutor
         +NodeImpl(String host, int port)
         +startAsLeader() void
         +joinCluster(String host, int port) void
+        +autoJoinCluster() void
         +ping() boolean
         +getId() String
         +getStatus() String
@@ -50,13 +51,18 @@ classDiagram
         +becomeLeader() void
     }
     
-    class DiscoveryService {
+    class ClusterMembershipService {
         -List~NodeService~ activeNodes
         +addNode(NodeService node) void
         +removeNode(NodeService node) void
         +getActiveNodes() List~NodeService~
-        +getNodeCount() int
-        +broadcastNodeList() void
+        +getClusterSize() int
+    }
+    
+    class LeaderDiscoveryStrategy {
+        <<interface>>
+        +discoverLeader(timeoutMs) NodeInfo
+        +shutdown() void
     }
     
     class HeartbeatMonitor {
@@ -82,7 +88,8 @@ classDiagram
         +getCurrentLeader() NodeService
     }
     
-    NodeImpl --> DiscoveryService : uses
+    NodeImpl --> ClusterMembershipService : uses
+    NodeImpl --> LeaderDiscoveryStrategy : uses
     NodeImpl --> HeartbeatMonitor : uses
     NodeImpl --> BullyElection : uses
     NodeImpl ..|> NodeService : implements
@@ -216,7 +223,7 @@ sequenceDiagram
     autonumber
     participant W as Worker (nuovo)
     participant L as Leader
-    participant D as DiscoveryService
+    participant C as ClusterMembershipService
     participant H as HeartbeatMonitor
     
     Note over W: Avvio con --join localhost:5001
@@ -228,9 +235,9 @@ sequenceDiagram
     W->>L: registry.lookup("leader")
     
     W->>+L: registerNode(this)
-    L->>D: addNode(worker)
-    D->>D: activeNodes.add(worker)
-    D-->>L: ✓ Node added
+    L->>C: addNode(worker)
+    C->>C: activeNodes.add(worker)
+    C-->>L: ✓ Node added
     L->>H: startMonitoring(worker)
     H->>H: schedule heartbeat task
     L-->>-W: ✓ Registered
@@ -244,7 +251,7 @@ sequenceDiagram
         L-->>W: true
     end
 ```
-
+**N.B.:** Here we are considering only the join process, and not how the worker know the leader address (manual or automatic discovery). 
 ```java
 public void joinCluster(String leaderHost, int leaderPort) throws RemoteException {
     // 1. Connect to Leader's RMI registry
@@ -270,6 +277,106 @@ public void joinCluster(String leaderHost, int leaderPort) throws RemoteExceptio
 
 ---
 
+#### Automatic Discovery
+
+**Purpose**: Workers can join cluster without knowing Leader's IP:port via automatic discovery.
+
+**Join Protocol with Auto-Discovery**:
+
+```mermaid
+sequenceDiagram
+    participant Leader as Leader (5001)
+    participant BG as Background Thread
+    participant Network as UDP Network
+    participant Worker as Worker (5002)
+    participant C as ClusterMembershipService
+
+    
+    Note over Leader: T=0s - Leader Startup
+    Leader->>Leader: NodeImpl("localhost", 5001)
+    Leader->>Leader: startAsLeader()
+    Leader->>Leader: new ClusterMembershipService()
+    Leader->>Leader: new UdpDiscoveryService(5001, nodeId)
+    Leader->>BG: startBroadcaster()
+    activate BG
+    Note over BG: Background thread starts
+    Note over Leader: [OK] Leader started
+    
+    Note over Network: T=0s - First Broadcast
+    BG->>Network: Broadcast LEADER_ANNOUNCEMENT
+    Note over Network: UDP → 255.255.255.255:6789
+    
+    Note over Worker: T=3s - Worker Startup
+    Note over Worker: Avvio con --auto-discover
+    
+    Worker->>Worker: new NodeImpl(host, port)
+    Worker->>Worker: autoJoinCluster()
+    Worker->>Worker: new UdpDiscoveryService()
+    
+    Worker->>Network: discoverLeader(5000ms)
+    Note over Worker,Network: Opens socket on port 6789, BLOCKS
+    activate Network
+    Note over Worker,Network: Socket open on 6789, BLOCKING...
+    
+    Note over Network: T=5s - Second Broadcast
+    BG->>Network: Broadcast LEADER_ANNOUNCEMENT
+    Network->>Worker: Packet received!
+    deactivate Network
+    Note over Worker: Deserialize → NodeInfo
+    Note over Worker: [OK] Discovered Leader
+    
+    Worker->>Leader: joinCluster("localhost", 5001)
+    Note over Worker,Leader: RMI connection
+    Leader->>C: addNode(worker)
+    Leader-->>Worker: Registration confirmed
+    Note over Worker: [OK] Joined cluster
+    
+    Note over Network: T=10s - Third Broadcast
+    BG->>Network: Broadcast (no listeners)
+    
+    Note over Network: T=15s - Fourth Broadcast
+    BG->>Network: Broadcast (continues every 5s)
+    
+    Note over Leader: T=60s - Leader Shutdown
+    Leader->>Leader: shutdown()
+    Leader->>BG: isBroadcasting = false
+    Leader->>BG: executorService.shutdownNow()
+    deactivate BG
+    Leader->>Leader: socket.close()
+    Note over Leader: [OK] Shut down cleanly
+```
+
+
+```java
+public void autoJoinCluster() throws Exception {
+    log.info("Starting automatic Leader discovery...");
+    
+    // Use UDP discovery strategy by default
+    this.discoveryStrategy = new UdpDiscoveryService();
+    
+    // Discover Leader (blocks until found or timeout)
+    NodeInfo leader = discoveryStrategy.discoverLeader(5000);
+    
+    if (leader == null) {
+        throw new Exception("No Leader found via UDP discovery (timeout 5000ms). " +
+                          "Possible causes: No Leader running, firewall blocking UDP, " +
+                          "not on same network. Try manual join: --join host:port");
+    }
+    
+    log.info("[OK] Discovered Leader: {} at {}:{}", 
+             leader.getNodeId(), leader.getHost(), leader.getPort());
+    
+    // Use existing join method to complete connection
+    joinCluster(leader.getHost(), leader.getPort());
+}
+```
+
+**Strategy Pattern**: Uses `LeaderDiscoveryStrategy` interface allowing multiple discovery mechanisms (UDP, multicast, static config, cloud-native). See [Discovery Overview](../discovery/overview.md) for details.
+
+**Fallback**: If automatic discovery fails (timeout, firewall), users can still use manual join with `--join host:port`.
+
+---
+
 ### Leader Mode
 
 **Activation**: Node becomes Leader via `startAsLeader()` or election victory.
@@ -287,19 +394,32 @@ public void joinCluster(String leaderHost, int leaderPort) throws RemoteExceptio
 public void startAsLeader() throws RemoteException {
     this.isLeader = true;
     
-    // Initialize discovery service
-    this.discoveryService = new DiscoveryService();
+    // Initialize cluster membership service
+    this.membershipService = new ClusterMembershipService();
     
     // Register self as first cluster member
-    discoveryService.addNode(this);
+    membershipService.addNode(this);
     
     // Bind as "leader" in RMI registry (in addition to "node")
     myRegistry.rebind("leader", this);
     
+    // Start UDP broadcaster for automatic discovery (NEW - Phase 1.3)
+    try {
+        this.discoveryStrategy = new UdpDiscoveryService(this.port, this.nodeId);
+        ((UdpDiscoveryService) discoveryStrategy).startBroadcaster();
+        log.info("[OK] UDP broadcaster started on port 6789");
+    } catch (Exception e) {
+        log.warn("UDP broadcaster disabled (port conflict): {}", e.getMessage());
+        log.warn("  Workers must use manual --join host:port");
+        // Continue without UDP - manual join still works
+    }
+    
     log.info("[OK] Node {} started as LEADER on port {}", nodeId, port);
-    log.info("[OK] Cluster size: {} node(s)", discoveryService.getClusterSize());
+    log.info("[OK] Cluster size: {} node(s)", membershipService.getClusterSize());
 }
 ```
+
+**UDP Broadcaster**: Leader now automatically broadcasts its presence every 5 seconds via UDP to `255.255.255.255:6789`. This allows Workers to discover the Leader without manual configuration. See [UDP Discovery Implementation](../discovery/udp-discovery-architecture.md).
 
 **Why Rebind Instead of New Registry?**
 
