@@ -409,13 +409,14 @@ flowchart TB
 - [x] RMI Registry per node (Approach A)
 - [x] Discovery mechanism (bootstrap via Leader join)
 - [x] Manual integration tests for cluster formation
+- [X] Phase 1.4: HeartbeatMonitor implementation
+
 
 ### 🚧 In Progress / Planned
 
-- [ ] Phase 1.4: HeartbeatMonitor implementation
 - [ ] Phase 2: Bully Algorithm for leader election
 - [ ] Phase 3: Task Framework and distribution
-- [ ] Phase 4+: Advanced features (see ROADMAP.md)
+- [ ] Phase 4+: Advanced features
 
 ---
 
