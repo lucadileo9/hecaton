@@ -27,14 +27,6 @@ public interface LeaderService extends Remote {
     void reportTaskCompletion(String taskId, Object result) throws RemoteException;
     
     /**
-     * Election request from a candidate node.
-     * @param candidateId ID of the node that wants to become Leader
-     * @return true if accepts the candidacy
-     * @throws RemoteException if RMI communication fails
-     */
-    boolean requestElection(String candidateId) throws RemoteException;
-        
-    /**
      * Returns the list of all nodes in the cluster.
      * Used by Workers to obtain cluster membership information for election algorithm.
      * Workers cache this list locally to continue election even if Leader dies.

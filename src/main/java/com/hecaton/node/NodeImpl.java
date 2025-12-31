@@ -276,10 +276,6 @@ public class NodeImpl implements NodeService, LeaderService {
     }
     
     @Override
-    public boolean requestElection(String candidateId) throws RemoteException {
-        log.info("Election request from {}", candidateId);
-        // TODO
-        return true;
     public List<NodeInfo> getClusterNodes() throws RemoteException {
         if (!isLeader || membershipService == null) {
             throw new RemoteException("Not a Leader or no membership service available");
