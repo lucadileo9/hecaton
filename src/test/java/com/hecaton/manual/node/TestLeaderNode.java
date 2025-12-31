@@ -1,6 +1,9 @@
 package com.hecaton.manual.node;
 
+import com.hecaton.election.bully.BullyElection;
 import com.hecaton.node.NodeImpl;
+
+import java.util.ArrayList;
 
 /**
  * Test 1: Basic Leader Node Startup
@@ -28,7 +31,9 @@ public class TestLeaderNode {
         System.out.println();
         
         // Create and start Leader on port 5001
-        NodeImpl leader = new NodeImpl("localhost", 5001);
+        // Create election strategy (empty cache initially, will be populated when Workers join)
+        BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
+        NodeImpl leader = new NodeImpl("localhost", 5001, electionStrategy);
         leader.startAsLeader();
         
         System.out.println();

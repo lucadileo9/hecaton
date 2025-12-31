@@ -1,6 +1,9 @@
 package com.hecaton.manual.node;
 
+import com.hecaton.election.bully.BullyElection;
 import com.hecaton.node.NodeImpl;
+
+import java.util.ArrayList;
 
 /**
  * Test 2: Worker Node Joining Cluster
@@ -32,7 +35,9 @@ public class TestWorkerNode {
         System.out.println();
         
         // Create Worker on port 5002
-        NodeImpl worker = new NodeImpl("localhost", 5002);
+        // Create election strategy for Worker
+        BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
+        NodeImpl worker = new NodeImpl("localhost", 5002, electionStrategy);
         
         // Join Leader's cluster
         worker.joinCluster("localhost", 5001);

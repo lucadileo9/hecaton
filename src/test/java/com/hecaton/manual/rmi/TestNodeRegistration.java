@@ -1,10 +1,12 @@
 package com.hecaton.manual.rmi;
 
+import com.hecaton.election.bully.BullyElection;
 import com.hecaton.node.NodeImpl;
 import com.hecaton.rmi.LeaderService;
 
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.util.ArrayList;
 
 /**
  * Test 5: Node Registration Flow
@@ -42,7 +44,9 @@ public class TestNodeRegistration {
         try {
             // Step 1: Create temporary Worker node
             System.out.println("1. Creating temporary Worker node on port 6000...");
-            NodeImpl tempWorker = new NodeImpl("localhost", 6000);
+            // Create temporary worker with election strategy
+            BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
+            NodeImpl tempWorker = new NodeImpl("localhost", 6000, electionStrategy);
             System.out.println("   [OK] Worker node created");
             System.out.println("   [OK] Worker ID: " + tempWorker.getId());
             System.out.println();
