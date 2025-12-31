@@ -21,4 +21,13 @@ public interface ElectionStrategy {
      * Implementation is algorithm-specific (Bully, Ring, Raft, etc.)
      */
     void startElection();
+    
+    /**
+     * Notifies the election strategy that a COORDINATOR message was received.
+     * This allows the strategy to unblock any waiting threads or update internal state.
+     * 
+     * Called by NodeImpl when receiveCoordinatorMessage() is invoked via RMI.
+     * Implementation varies by algorithm (e.g., Bully uses CountDownLatch, Raft updates term).
+     */
+    void notifyCoordinatorReceived();
 }
