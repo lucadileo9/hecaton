@@ -1,7 +1,10 @@
 package com.hecaton.rmi;
 
+import com.hecaton.discovery.NodeInfo;
+
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import java.util.List;
 
 /**
  * Interface exposed ONLY by the Leader node.
@@ -30,4 +33,14 @@ public interface LeaderService extends Remote {
      * @throws RemoteException if RMI communication fails
      */
     boolean requestElection(String candidateId) throws RemoteException;
+        
+    /**
+     * Returns the list of all nodes in the cluster.
+     * Used by Workers to obtain cluster membership information for election algorithm.
+     * Workers cache this list locally to continue election even if Leader dies.
+     * 
+     * @return List of NodeInfo objects containing metadata for each node
+     * @throws RemoteException if RMI communication fails or node is not Leader
+     */
+    List<NodeInfo> getClusterNodes() throws RemoteException;
 }
