@@ -38,7 +38,6 @@ public class BullyElection implements ElectionStrategy {
     private final long selfElectionId;        // This node's election ID (timestamp)
     private final List<NodeInfo> clusterNodes; // Cached list of all cluster nodes
     
-    private volatile boolean coordinatorReceived = false;
     private final CountDownLatch coordinatorLatch = new CountDownLatch(1);
     
     /**
@@ -203,7 +202,6 @@ public class BullyElection implements ElectionStrategy {
      * Releases the latch that is blocking waitForCoordinator().
      */
     public void notifyCoordinatorReceived() {
-        coordinatorReceived = true;
         coordinatorLatch.countDown();
     }
 }
