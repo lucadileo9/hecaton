@@ -29,4 +29,37 @@ public interface NodeService extends Remote {
      * @throws RemoteException if RMI communication fails
      */
     String getStatus() throws RemoteException;
+        
+    /**
+     * Returns the numeric election ID used for comparison during Leader election.
+     * This is the timestamp value (nodeIdValue) used by the Election algorithm.
+     * @return Timestamp of node creation (used for election comparison)
+     * @throws RemoteException if RMI communication fails
+     */
+    long getElectionId() throws RemoteException;
+    
+    /**
+     * Receives an ELECTION message from a candidate node.
+     * If this node has a higher election ID, it will start its own election.
+     * 
+     * N.B.: Id is different from electionId. Id is string, electionId is numeric (timestamp).
+     * 
+     * @param candidateId String ID of the candidate node (for logging)
+     * @param candidateElectionId Numeric ID for comparison (timestamp)
+     * @throws RemoteException if RMI communication fails
+     */
+    void receiveElectionMessage(String candidateId, long candidateElectionId) 
+        throws RemoteException;
+    
+    /**
+     * Receives COORDINATOR announcement from the new Leader.
+     * This node will reconnect to the new Leader and resume normal operation.
+     * 
+     * @param newLeaderId ID of the new Leader
+     * @param leaderHost Hostname of the new Leader
+     * @param leaderPort RMI registry port of the new Leader
+     * @throws RemoteException if RMI communication fails
+     */
+    void receiveCoordinatorMessage(String newLeaderId, String leaderHost, int leaderPort) 
+        throws RemoteException;
 }
