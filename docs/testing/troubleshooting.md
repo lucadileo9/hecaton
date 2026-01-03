@@ -278,6 +278,199 @@ mvn exec:java -Dexec.mainClass=`"com.hecaton.manual.node.TestLeaderNode`"
 
 ---
 
+## Circular Dependency: ElectionStrategy and NodeImpl
+
+### Problem
+
+When implementing Dependency Injection for `ElectionStrategy`, tests fail with NullPointerException:
+
+```java
+// ❌ FAILS: selfNode is null, selfElectionId is 0
+BullyElection strategy = new BullyElection(null, 0, new ArrayList<>());
+NodeImpl node = new NodeImpl("localhost", 5001, strategy);
+```
+
+**Error message:**
+```
+java.lang.NullPointerException: Cannot invoke "com.hecaton.node.NodeImpl.getId()" because "this.selfNode" is null
+    at com.hecaton.election.bully.BullyElection.startElection(BullyElection.java:75)
+```
+
+**Additional symptoms:**
+- Election always uses ID `0` instead of node's timestamp
+- Cannot call methods on `selfNode` during election (it's null)
+- Tests compile but fail at runtime when election starts
+
+### Root Cause
+
+Classic **chicken-and-egg dependency problem**:
+
+1. To create `BullyElection`, you need a reference to `NodeImpl` (for `selfNode` parameter)
+2. To create `NodeImpl` with Dependency Injection, you need an `ElectionStrategy` instance
+3. But `NodeImpl` doesn't exist yet when creating `BullyElection`!
+
+```java
+// ❌ Circular dependency
+BullyElection strategy = new BullyElection(
+    node,           // ← node doesn't exist yet!
+    nodeId,         // ← don't know the ID yet!
+    clusterCache    // ← cache not initialized yet!
+);
+
+NodeImpl node = new NodeImpl("localhost", port, strategy);  // ← strategy is broken!
+```
+
+**Why passing `null` doesn't work:**
+- `BullyElection` stores `selfNode` as `final` field
+- When `startElection()` is called, it tries to use `selfNode.getId()` → NullPointerException
+- Election ID remains `0` instead of using node's actual timestamp
+
+### Solutions Considered
+
+#### ❌ Option 1: NodeImpl Creates Strategy Internally (Rejected)
+
+```java
+public NodeImpl(String host, int port) throws RemoteException {
+    // ... initialization ...
+    this.electionStrategy = new BullyElection(this, nodeIdValue, clusterNodesCache);
+}
+```
+
+**Pros:**
+- Simple, no chicken-and-egg problem
+
+**Cons:**
+- Hardcodes `BullyElection` inside `NodeImpl`
+- Violates Dependency Inversion Principle
+- Cannot swap algorithms without modifying `NodeImpl`
+- Not elegant
+
+#### ❌ Option 2: Setter Post-Construction (Rejected)
+
+```java
+NodeImpl node = new NodeImpl("localhost", port);
+BullyElection strategy = new BullyElection(node, node.getElectionId(), new ArrayList<>());
+node.setElectionStrategy(strategy);
+```
+
+**Pros:**
+- Resolves circular dependency
+- Flexible
+
+**Cons:**
+- `NodeImpl` in invalid state until `setElectionStrategy()` is called
+- Easy to forget calling setter → runtime errors
+- More verbose
+- Not elegant
+
+#### ❌ Option 3: Multiple Static Factory Methods (Rejected)
+
+```java
+NodeImpl node = NodeImpl.createWithBullyElection("localhost", 5001);
+NodeImpl node = NodeImpl.createWithRaftElection("localhost", 5001);
+```
+
+**Pros:**
+- Clean API
+
+**Cons:**
+- Need one factory method per algorithm
+- Scales poorly (10 algorithms = 10 methods)
+- Still couples `NodeImpl` to concrete implementations
+- Not elegant
+
+#### ✅ Option 4: ElectionStrategyFactory Pattern (CHOSEN)
+
+**Implementation:** Create a dedicated factory class that centralizes strategy creation logic.
+
+**File: `ElectionStrategyFactory.java`**
+```java
+public class ElectionStrategyFactory {
+    
+    public enum Algorithm {
+        BULLY,
+        RAFT,   // Future
+        RING    // Future
+    }
+    
+    public static ElectionStrategy create(
+            Algorithm algorithm,
+            NodeImpl selfNode, 
+            long electionId, 
+            List<NodeInfo> clusterNodes) {
+        
+        switch (algorithm) {
+            case BULLY:
+                return new BullyElection(selfNode, electionId, clusterNodes);
+            case RAFT:
+                throw new UnsupportedOperationException("Raft not yet implemented");
+            default:
+                throw new IllegalArgumentException("Unknown algorithm: " + algorithm);
+        }
+    }
+}
+```
+
+**Updated `NodeImpl` constructor:**
+```java
+public NodeImpl(String host, int port, ElectionStrategyFactory.Algorithm algorithm) 
+        throws RemoteException {
+    
+    // Initialize node fields FIRST
+    this.nodeIdValue = System.currentTimeMillis();
+    this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
+    this.port = port;
+    this.clusterNodesCache = new ArrayList<>();
+    
+    // NOW create strategy with fully-initialized node reference
+    this.electionStrategy = ElectionStrategyFactory.create(
+        algorithm,          // ← Enum for type safety
+        this,               // ← 'this' is now valid!
+        nodeIdValue,        // ← Real timestamp
+        clusterNodesCache   // ← Real cache reference
+    );
+    
+    // ... rest of initialization ...
+}
+```
+
+**Usage in tests (clean and simple):**
+```java
+import static com.hecaton.election.ElectionStrategyFactory.Algorithm;
+
+// Leader
+NodeImpl leader = new NodeImpl("localhost", 5001, Algorithm.BULLY);
+
+// Worker
+NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
+
+// Future: switching to Raft is trivial
+NodeImpl node = new NodeImpl("localhost", 5003, Algorithm.RAFT);
+```
+
+### Why Factory Pattern Wins
+
+**Advantages:**
+- ✅ **Elegant**: Single point of strategy creation
+- ✅ **Scalable**: Adding Raft = one new `case` statement
+- ✅ **Type-safe**: Enum prevents typos (compile-time safety)
+- ✅ **Flexible**: Easy to swap algorithms via constructor parameter
+- ✅ **SOLID compliant**: Follows Dependency Inversion and Open/Closed principles
+- ✅ **No invalid state**: Node always has a valid strategy after construction
+- ✅ **Clean tests**: No boilerplate, just specify algorithm enum
+
+**Trade-offs accepted:**
+- ⚠️ Algorithm selection happens at compile-time (constructor parameter)
+- ⚠️ Factory must know about all concrete implementations
+
+**Design Decision:** Algorithm selection at node creation time is acceptable because:
+1. Election algorithm is a fundamental architectural choice, not runtime configuration
+2. Changing algorithms requires cluster-wide coordination anyway
+3. For educational project, compile-time selection is sufficient
+
+
+---
+
 ## RMI Connection Issues
 
 ### Port Already in Use
@@ -374,6 +567,7 @@ mvn clean test-compile
 |------|-------|----------|--------|
 | 2025-12-27 | PowerShell quote parsing | Use single quotes `'-Dparam=value'` | ✅ Solved |
 | 2025-12-27 | Maven executes wrong class | Remove hardcoded mainClass from pom.xml | ✅ Solved |
+| 2026-01-15 | Circular dependency ElectionStrategy/NodeImpl | Implement ElectionStrategyFactory pattern | ✅ Solved |
 
 ---
 
