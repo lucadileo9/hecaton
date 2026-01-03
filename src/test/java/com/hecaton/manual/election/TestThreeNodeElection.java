@@ -1,11 +1,9 @@
 package com.hecaton.manual.election;
 
-import com.hecaton.election.bully.BullyElection;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
 
 /**
  * Test manuale per verificare l'elezione automatica del Leader.
@@ -87,8 +85,7 @@ public class TestThreeNodeElection {
             }
             
             // Create election strategy and node
-            BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
-            NodeImpl node = new NodeImpl("localhost", port, electionStrategy);
+            NodeImpl node = new NodeImpl("localhost", port, Algorithm.BULLY);
             
             if ("leader".equals(mode)) {
                 logger.info("Starting node as LEADER on port {}", port);

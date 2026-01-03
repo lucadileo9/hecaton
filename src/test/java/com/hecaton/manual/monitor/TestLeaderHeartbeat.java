@@ -1,9 +1,7 @@
 package com.hecaton.manual.monitor;
 
-import com.hecaton.election.bully.BullyElection;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
-
-import java.util.ArrayList;
 
 /**
  * Manual test to observe Leader heartbeat monitoring.
@@ -62,11 +60,7 @@ public class TestLeaderHeartbeat {
         System.out.println();
         
         // Create Worker node on port 5002
-        // Create election strategy for Worker
-        BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
-        NodeImpl worker = new NodeImpl("localhost", 5002, electionStrategy);
-        
-        // Join cluster (this will start heartbeat monitor)
+        NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
         worker.joinCluster("localhost", 5001);
         
         System.out.println("[OK] Worker joined cluster and monitoring Leader");

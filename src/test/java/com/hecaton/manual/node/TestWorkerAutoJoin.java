@@ -1,11 +1,9 @@
 package com.hecaton.manual.node;
 
-import com.hecaton.election.bully.BullyElection;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
 
 /**
  * Manual test: Worker node with automatic Leader discovery via UDP broadcast.
@@ -42,8 +40,7 @@ public class TestWorkerAutoJoin {
             
             // Create Worker node
             // Create election strategy for Worker
-            BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
-            NodeImpl worker = new NodeImpl("localhost", 5002, electionStrategy);
+            NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
             
             // Automatically discover and join cluster (NEW METHOD)
             log.info("Starting automatic Leader discovery (timeout: 5000ms)...");

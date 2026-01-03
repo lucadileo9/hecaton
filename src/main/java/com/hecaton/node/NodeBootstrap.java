@@ -1,10 +1,8 @@
 package com.hecaton.node;
 
-import com.hecaton.election.bully.BullyElection;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
 
 /**
  * Bootstrap class to start a Hecaton node from command line.
@@ -50,8 +48,7 @@ public class NodeBootstrap {
             }
             
             // Create election strategy and node
-            BullyElection electionStrategy = new BullyElection(null, 0, new ArrayList<>());
-            NodeImpl node = new NodeImpl("localhost", port, electionStrategy);
+            NodeImpl node = new NodeImpl("localhost", port, Algorithm.BULLY);
             
             // Start as Leader or join as Worker
             if (isLeader) {
