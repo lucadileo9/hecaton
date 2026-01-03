@@ -5,6 +5,8 @@ import com.hecaton.discovery.LeaderDiscoveryStrategy;
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.election.ElectionStrategy;
+import com.hecaton.election.ElectionStrategyFactory;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
@@ -54,10 +56,10 @@ public class NodeImpl implements NodeService, LeaderService {
      * Each node creates its own RMI Registry on the specified port.
      * @param host Host address (e.g. "localhost" or "192.168.1.10")
      * @param port RMI registry port
-     * @param electionStrategy Election algorithm implementation (e.g., BullyElection)
+     * @param algorithm Election algorithm to use (BULLY, RAFT, RING)
      * @throws RemoteException if RMI export fails
      */
-    public NodeImpl(String host, int port, ElectionStrategy electionStrategy) throws RemoteException {
+    public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException {
         // This prevents "Connection refused" errors when RMI auto-detects wrong IP on multi-NIC systems
         if (System.getProperty("java.rmi.server.hostname") == null) {
             System.setProperty("java.rmi.server.hostname", "localhost");
@@ -68,9 +70,14 @@ public class NodeImpl implements NodeService, LeaderService {
         this.port = port;
         this.isLeader = false;
         
-        // Phase 2: Inject election strategy (Dependency Injection pattern)
+        // Create election strategy via factory
         this.clusterNodesCache = new ArrayList<>();
-        this.electionStrategy = electionStrategy;
+        this.electionStrategy = ElectionStrategyFactory.create(
+            algorithm,         // Algorithm choice
+            this,              // Self reference (now fully initialized!)
+            nodeIdValue,       // Election ID
+            clusterNodesCache  // Cache (will be populated in joinCluster)
+        );
         
         // Export this object for RMI (makes it remotely callable)
         UnicastRemoteObject.exportObject(this, 0);
