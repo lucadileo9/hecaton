@@ -126,7 +126,7 @@ Since all manual tests are in `src/test/java/com/hecaton/manual/`, they are comp
 
 ### Solutions
 
-#### ✅ Solution 1: Configure pom.xml (Recommended - Applied)
+#### ✅ Solution 1: Configure pom.xml (Applied)
 
 Add `<classpathScope>test</classpathScope>` to exec-maven-plugin in `pom.xml`:
 
