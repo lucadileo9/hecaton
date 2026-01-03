@@ -75,13 +75,13 @@ public class TestThreeNodeElection {
             
             // Validate arguments
             if (port == -1) {
-                System.err.println("❌ Missing --port argument");
+                System.err.println("Missing --port argument");
                 printUsage();
                 System.exit(1);
             }
             
             if (mode == null) {
-                System.err.println("❌ Missing --leader or --join argument");
+                System.err.println("Missing --leader or --join argument");
                 printUsage();
                 System.exit(1);
             }
@@ -91,25 +91,25 @@ public class TestThreeNodeElection {
             NodeImpl node = new NodeImpl("localhost", port, electionStrategy);
             
             if ("leader".equals(mode)) {
-                logger.info("🚀 Starting node as LEADER on port {}", port);
+                logger.info("Starting node as LEADER on port {}", port);
                 node.startAsLeader();
-                logger.info("✅ Leader node started successfully");
-                logger.info("👑 Node ID: {}", node.getId());
-                logger.info("🔢 Election ID: {}", node.getElectionId());
+                logger.info("Leader node started successfully");
+                logger.info("Node ID: {}", node.getId());
+                logger.info("Election ID: {}", node.getElectionId());
                 logger.info("");
-                logger.info("📌 To test election:");
+                logger.info("To test election:");
                 logger.info("   1. Start 2 Workers on different terminals");
                 logger.info("   2. Wait 5 seconds for cluster stabilization");
                 logger.info("   3. Press Ctrl+C here to kill the Leader");
                 logger.info("   4. Watch Workers elect new Leader");
                 logger.info("");
             } else {
-                logger.info("🚀 Starting node as WORKER on port {}, joining Leader at {}:{}", 
+                logger.info("Starting node as WORKER on port {}, joining Leader at {}:{}", 
                     port, leaderHost, leaderPort);
                 node.joinCluster(leaderHost, leaderPort);
-                logger.info("✅ Worker node joined cluster successfully");
-                logger.info("👤 Node ID: {}", node.getId());
-                logger.info("🔢 Election ID: {}", node.getElectionId());
+                logger.info("Worker node joined cluster successfully");
+                logger.info("Node ID: {}", node.getId());
+                logger.info("Election ID: {}", node.getElectionId());
                 logger.info("");
                 logger.info("📌 Waiting for Leader heartbeats...");
                 logger.info("   If Leader dies, this node will participate in election");
@@ -125,11 +125,11 @@ public class TestThreeNodeElection {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 try {
                     logger.info("");
-                    logger.info("🛑 Shutting down node {}", nodeRef.getId());
+                    logger.info("Shutting down node {}", nodeRef.getId());
                     nodeRef.shutdown();
-                    logger.info("✅ Node shutdown complete");
+                    logger.info("Node shutdown complete");
                 } catch (Exception e) {
-                    logger.error("❌ Error during shutdown: {}", e.getMessage());
+                    logger.error("Error during shutdown: {}", e.getMessage());
                 }
             }));
             
@@ -137,11 +137,11 @@ public class TestThreeNodeElection {
             Thread.currentThread().join();
             
         } catch (NumberFormatException e) {
-            System.err.println("❌ Invalid port number: " + e.getMessage());
+            System.err.println("Invalid port number: " + e.getMessage());
             printUsage();
             System.exit(1);
         } catch (Exception e) {
-            logger.error("❌ Test failed with exception", e);
+            logger.error("Test failed with exception", e);
             System.exit(1);
         }
     }
