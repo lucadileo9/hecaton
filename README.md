@@ -1,5 +1,10 @@
 # Hecaton - Sistema di Calcolo Distribuito P2P
+[![Java](https://img.shields.io/badge/Java-17-007396.svg?logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
 
+[![GitHub license](https://img.shields.io/github/license/lucadileo9/culinary-explorer)](https://github.com/lucadileo9/culinary-explorer/blob/main/LICENSE)
+
+[![Made for Course](https://img.shields.io/badge/Course-Distributed%20Algorithm-lightgreny.svg)](https://github.com/lucadileo9/hecaton)
+[![University](https://img.shields.io/badge/University-UNIMORE-blue.svg)](https://www.unimore.it/)
 
 ## 🎯 Vision del Progetto
 
