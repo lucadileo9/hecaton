@@ -108,13 +108,13 @@ public class TestThreeNodeElection {
                 logger.info("Node ID: {}", node.getId());
                 logger.info("Election ID: {}", node.getElectionId());
                 logger.info("");
-                logger.info("📌 Waiting for Leader heartbeats...");
+                logger.info("Waiting for Leader heartbeats...");
                 logger.info("   If Leader dies, this node will participate in election");
                 logger.info("");
             }
             
             // Keep running until Ctrl+C
-            logger.info("🔄 Node is running. Press Ctrl+C to stop.");
+            logger.info("Node is running. Press Ctrl+C to stop.");
             logger.info("");
             
             // Add shutdown hook for graceful termination
