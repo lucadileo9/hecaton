@@ -1,49 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    
-    <!-- Console Appender - Output to terminal -->
+
+    <property name="CONSOLE_LEVEL" value="${console.level:-INFO}"/>
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>${CONSOLE_LEVEL}</level>
+        </filter>
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%gray(%d{HH:mm:ss}) %highlight(%-5level) %cyan(%-30.30logger{29}) - %msg%n</pattern>
         </encoder>
     </appender>
-    
-    <!-- File Appender - Log to file for debugging -->
-    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+
+    <appender name="FILE_INFO" class="ch.qos.logback.core.FileAppender">
         <file>logs/hecaton.log</file>
         <append>true</append>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%-15.15thread] %-5level %-40.40logger{39} - %msg%n</pattern>
         </encoder>
     </appender>
-    
-    <!-- Package-specific log levels -->
-    
-    <!-- RMI package - INFO level (show important RMI events) -->
-    <logger name="com.hecaton.rmi" level="INFO"/>
-    
-    <!-- Node package - DEBUG level (show detailed node operations) -->
-    <logger name="com.hecaton.node" level="DEBUG"/>
-    
-    <!-- Discovery package - INFO level -->
-    <logger name="com.hecaton.discovery" level="INFO"/>
-    
-    <!-- Election package - INFO level -->
-    <logger name="com.hecaton.election" level="INFO"/>
-    
-    <!-- Monitor package - DEBUG level (useful for heartbeat debugging) -->
-    <logger name="com.hecaton.monitor" level="DEBUG"/>
-    
-    <!-- Task package - INFO level -->
-    <logger name="com.hecaton.task" level="INFO"/>
-    
-    <!-- Scheduler package - INFO level -->
-    <logger name="com.hecaton.scheduler" level="INFO"/>
-    
-    <!-- Root logger - Default level for everything else -->
+
+    <appender name="FILE_DEBUG" class="ch.qos.logback.core.FileAppender">
+        <file>logs/hecaton-debug.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%-15.15thread] %-5level %-40.40logger{39} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="com.hecaton" level="DEBUG"/>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="FILE"/>
-    </root>
-    
+        <appender-ref ref="FILE_DEBUG"/>
+        <appender-ref ref="FILE_INFO"/> </root>    
+
 </configuration>
