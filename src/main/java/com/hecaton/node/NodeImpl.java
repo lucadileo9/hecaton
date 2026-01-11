@@ -152,10 +152,15 @@ public class NodeImpl implements NodeService, LeaderService {
         
         log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
         
-        // Start monitoring Leader's health
-        leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, "Leader Monitor");
+        // Start monitoring Leader's health with periodic cache refresh
+        leaderMonitor = new HeartbeatMonitor(
+            leaderNode, 
+            this::onLeaderDied, 
+            this::updateClusterCache,  
+            "Leader Monitor"
+        );
         leaderMonitor.start();
-        log.info("[OK] Heartbeat monitoring started for Leader");
+        log.info("[OK] Heartbeat monitoring started for Leader (cache refresh enabled)");
     }
     
     /**
@@ -250,7 +255,7 @@ public class NodeImpl implements NodeService, LeaderService {
             if (leaderMonitor != null) {
                 leaderMonitor.stop();
             }
-            leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, "Leader Monitor");
+            leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, this::updateClusterCache, "Leader Monitor");
             leaderMonitor.start();
             
             log.info("Successfully reconnected to new Leader");
@@ -343,6 +348,32 @@ public class NodeImpl implements NodeService, LeaderService {
         CompletableFuture.runAsync(() -> {
             electionStrategy.startElection();
         });
+    }
+    
+    /**
+     * Refreshes the cluster nodes cache by fetching latest list from Leader.
+     * Called periodically by HeartbeatMonitor to keep cache up-to-date.
+     * Only runs for Worker nodes (Leader has no cache).
+     */
+    private void updateClusterCache() {
+        if (isLeader || leaderNode == null) {
+            return; // Leaders don't need cache, only Workers do
+        }
+        
+        try {
+            LeaderService leader = (LeaderService) leaderNode;
+            List<NodeInfo> freshNodes = leader.getClusterNodes();
+            
+            // Update cache with fresh data
+            this.clusterNodesCache.clear();
+            this.clusterNodesCache.addAll(freshNodes);
+            
+            log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+            
+        } catch (RemoteException e) {
+            log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+            // Keep old cache - better than nothing
+        }
     }
     
     /**
