@@ -5,6 +5,7 @@ import com.hecaton.election.bully.BullyElection;
 import com.hecaton.node.NodeImpl;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Factory for creating election strategy instances.
@@ -42,7 +43,7 @@ public class ElectionStrategyFactory {
      * @param algorithm Algorithm type (BULLY, RAFT, RING)
      * @param selfNode Reference to the node that will use this strategy
      * @param electionId Numeric election ID for comparison
-     * @param clusterNodes Cached list of cluster nodes
+     * @param clusterNodesSupplier Supplier providing fresh cluster cache on demand
      * @return Configured ElectionStrategy instance
      * @throws UnsupportedOperationException if algorithm is not implemented yet
      */
@@ -50,11 +51,11 @@ public class ElectionStrategyFactory {
             Algorithm algorithm,
             NodeImpl selfNode, 
             long electionId, 
-            List<NodeInfo> clusterNodes) {
+            Supplier<List<NodeInfo>> clusterNodesSupplier) {
         
         switch (algorithm) {
             case BULLY:
-                return new BullyElection(selfNode, electionId, clusterNodes);
+                return new BullyElection(selfNode, electionId, clusterNodesSupplier);
                 
             case RAFT:
                 // TODO

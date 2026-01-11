@@ -13,6 +13,7 @@ import java.rmi.registry.Registry;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -36,7 +37,7 @@ public class BullyElection implements ElectionStrategy {
     private final NodeImpl selfNode;          // Reference to the node running this election
     // I'm not sure we need both selfElectionId and selfNode.getElectionId(), but whatever --- REWATCH ME
     private final long selfElectionId;        // This node's election ID (timestamp)
-    private final List<NodeInfo> clusterNodes; // Cached list of all cluster nodes
+    private final Supplier<List<NodeInfo>> clusterNodesSupplier; // Lazy supplier for fresh cluster cache
     
     private final CountDownLatch coordinatorLatch = new CountDownLatch(1);
     
@@ -45,12 +46,12 @@ public class BullyElection implements ElectionStrategy {
      * 
      * @param selfNode Reference to the NodeImpl running this election
      * @param selfElectionId Numeric election ID (timestamp) for comparison
-     * @param clusterNodes Cached list of all nodes in cluster (from Leader)
+     * @param clusterNodesSupplier Supplier providing fresh cluster cache on demand
      */
-    public BullyElection(NodeImpl selfNode, long selfElectionId, List<NodeInfo> clusterNodes) {
+    public BullyElection(NodeImpl selfNode, long selfElectionId, Supplier<List<NodeInfo>> clusterNodesSupplier) {
         this.selfNode = selfNode;
         this.selfElectionId = selfElectionId;
-        this.clusterNodes = clusterNodes;
+        this.clusterNodesSupplier = clusterNodesSupplier;
     }
     
     @Override
@@ -58,11 +59,13 @@ public class BullyElection implements ElectionStrategy {
         log.info("Starting Bully Election (my ID: {})", selfElectionId);
         
         try {
-            // STEP 1: Find nodes with higher election ID
+            // STEP 1: Get fresh cluster snapshot from supplier
+            List<NodeInfo> clusterNodes = clusterNodesSupplier.get();
+            
+            // STEP 2: Find nodes with higher election ID
             List<NodeInfo> higherNodes = clusterNodes.stream()
                 .filter(node -> node.getElectionId() > selfElectionId)
                 .collect(Collectors.toList());
-            
             if (higherNodes.isEmpty()) {
                 // No node with higher ID → I WIN!
                 log.info("No higher nodes found. I am the new Leader!");
@@ -149,7 +152,7 @@ public class BullyElection implements ElectionStrategy {
      */
     private void announceCoordinator() {
         log.info("Announcing myself as COORDINATOR to all nodes");
-        
+        List<NodeInfo> clusterNodes = clusterNodesSupplier.get(); // fresh cache
         for (NodeInfo node : clusterNodes) { //I'l send a COORDINATOR to everyone in the cluster
             if (node.getElectionId() == selfElectionId) {
                 continue;  // Skip myself

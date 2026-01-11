@@ -73,10 +73,10 @@ public class NodeImpl implements NodeService, LeaderService {
         // Create election strategy via factory
         this.clusterNodesCache = new ArrayList<>();
         this.electionStrategy = ElectionStrategyFactory.create(
-            algorithm,         // Algorithm choice
-            this,              // Self reference (now fully initialized!)
-            nodeIdValue,       // Election ID
-            clusterNodesCache  // Cache (will be populated in joinCluster)
+            algorithm,                      // Algorithm choice
+            this,                           // Self reference (now fully initialized!)
+            nodeIdValue,                    // Election ID
+            () -> this.clusterNodesCache    // Supplier for lazy cache access
         );
         
         // Export this object for RMI (makes it remotely callable)
@@ -338,8 +338,8 @@ public class NodeImpl implements NodeService, LeaderService {
     private void onLeaderDied(NodeService deadLeader) {
         log.error("[ALERT] LEADER IS DEAD! Node {} no longer responding", getNodeIdSafe(deadLeader));
         log.error("Starting Bully Election protocol...");
-        
         // Launch election asynchronously (don't block HeartbeatMonitor thread)
+        // Strategy will fetch fresh cache via supplier when needed
         CompletableFuture.runAsync(() -> {
             electionStrategy.startElection();
         });
