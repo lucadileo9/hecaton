@@ -107,15 +107,22 @@ classDiagram
 ```java
 public class NodeImpl implements NodeService, LeaderService {
     private String nodeId;                      // Unique identifier (e.g., "node-localhost-5001-1735315815123")
+    private long nodeIdValue;                   // Timestamp for ID generation and election comparison
     private int port;                           // RMI registry port
     private boolean isLeader;                   // Current role (true = Leader, false = Worker)
-    private DiscoveryService discoveryService;  // Cluster membership management (Leader only)
     private Registry myRegistry;                // Own RMI registry instance
-    private long nodeIdValue;                   // Timestamp-based unique value
     
-    // Heartbeat monitoring (Worker only)
-    private HeartbeatMonitor leaderMonitor;     // Monitors Leader health
-    private NodeService leaderNode;             // Reference to Leader for callbacks
+    // Leader-only components
+    private ClusterMembershipService membershipService;  // Cluster membership (Leader only)
+    private LeaderDiscoveryStrategy discoveryStrategy;   // UDP broadcaster for auto-discovery
+    
+    // Worker-only components
+    private HeartbeatMonitor leaderMonitor;     // Monitors Leader health (Worker only)
+    private NodeService leaderNode;             // Reference to Leader for RMI calls
+    
+    // Election components 
+    private ElectionStrategy electionStrategy;  // Pluggable election algorithm (BULLY, RAFT, RING)
+    private List<NodeInfo> clusterNodesCache;   // Cached cluster membership for election
 }
 ```
 
@@ -573,24 +580,60 @@ Leader broadcasts node list to all Workers for peer-to-peer communication.
 
 ## Heartbeat Monitoring
 
-Workers automatically monitor Leader health using **HeartbeatMonitor** component.
+Workers automatically monitor Leader health using **HeartbeatMonitor** component with integrated **cache refresh**.
 
 **Quick Summary**:
 - Workers ping Leader every **5 seconds**
 - **3 consecutive failures** = Leader declared dead (~15 seconds total)
+- **Cache refresh** every **8 heartbeats** (~40 seconds) for election readiness
 - Triggers `onLeaderDied()` callback → leader election (Phase 2)
 
 **Integration Points**:
 
 ```java
-// Initialized in joinCluster()
+// Initialized in joinCluster() with cache refresh callback
 private HeartbeatMonitor leaderMonitor;
 private NodeService leaderNode;
+private List<NodeInfo> clusterNodesCache;  // Refreshed every 10 heartbeats
+
+// Heartbeat initialization (joinCluster)
+leaderMonitor = new HeartbeatMonitor(
+    leaderNode, 
+    this::onLeaderDied,          // Failure callback
+    this::updateClusterCache,    // Cache refresh callback (Phase 2)
+    "Leader Monitor"
+);
+leaderMonitor.start();
 
 // Callback when Leader dies
 private void onLeaderDied(NodeService deadLeader) {
-    log.error("[ALERT] LEADER IS DEAD!");
-    // TODO Phase 2: Start Bully Election
+    log.error("[ALERT] LEADER IS DEAD! Node {} no longer responding", 
+              getNodeIdSafe(deadLeader));
+    log.error("Starting Bully Election protocol...");
+    
+    // Launch election asynchronously (don't block HeartbeatMonitor thread)
+    CompletableFuture.runAsync(() -> {
+        electionStrategy.startElection();  // Uses fresh cache via Supplier
+    });
+}
+
+// Periodic cache refresh (called every 10 heartbeats by HeartbeatMonitor)
+private void updateClusterCache() {
+    if (isLeader || leaderNode == null) {
+        return;  // Leaders don't need cache
+    }
+    
+    try {
+        LeaderService leader = (LeaderService) leaderNode;
+        List<NodeInfo> freshNodes = leader.getClusterNodes();
+        
+        this.clusterNodesCache.clear();
+        this.clusterNodesCache.addAll(freshNodes);
+        
+        log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+    } catch (RemoteException e) {
+        log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+    }
 }
 
 // Cleanup on shutdown
@@ -602,9 +645,162 @@ public void shutdown() {
 }
 ```
 
+**Cache Refresh Architecture**:
+
+The cache is consumed by `ElectionStrategy` via **Supplier Pattern**:
+
+```java
+// ElectionStrategy receives lambda (not snapshot)
+this.electionStrategy = ElectionStrategyFactory.create(
+    algorithm,
+    this,
+    nodeIdValue,
+    () -> this.clusterNodesCache  // ← Lazy evaluation
+);
+
+// BullyElection.startElection() calls supplier
+List<NodeInfo> clusterNodes = clusterNodesSupplier.get();  // ← Fresh data!
+```
+
+**Why This Matters**:
+
+Without cache refresh, Workers don't know about nodes that joined after them → split-brain election (multiple Leaders). Cache refresh ensures all Workers know about each other before Leader dies.
+
 **For complete documentation**, see:
 - **Architecture & Design**: [HeartbeatMonitor Component](heartbeat.md)
+- **Election Integration**: [Election Component](election.md)
 - **Testing Procedures**: [Heartbeat Testing Guide](../testing/heartbeat.md)
+
+---
+
+## Leader Election
+
+### Overview
+
+When the Leader dies, Workers automatically elect a new Leader using the **Bully Algorithm**:
+
+**Rule**: Node with **highest election ID** (timestamp) becomes Leader.
+
+**Trigger**: HeartbeatMonitor detects 3 consecutive ping failures → calls `onLeaderDied()`
+
+**Duration**: Election completes in ~10-15 seconds (COORDINATOR timeout + message propagation)
+
+### Election Flow
+
+```mermaid
+sequenceDiagram
+    participant L as Leader (ID:1000)
+    participant W1 as Worker A (ID:2000)
+    participant W2 as Worker B (ID:3000)
+    
+    Note over L: ❌ Leader CRASHES
+    
+    W1->>W1: onLeaderDied() callback
+    W2->>W2: onLeaderDied() callback
+    
+    par Worker A election
+        W1->>W1: startElection()
+        W1->>W1: Find higher IDs: [B(3000)]
+        W1->>W2: ELECTION message
+        W1->>W1: Wait for COORDINATOR
+    and Worker B election
+        W2->>W2: startElection()
+        W2->>W2: Find higher IDs: []
+        W2->>W2: No higher → I WIN!
+        W2->>W2: promoteToLeader()
+    end
+    
+    Note over W2: B becomes Leader
+    
+    W2->>W1: COORDINATOR message
+    W1->>W2: Reconnect + re-register
+    
+    Note over W1,W2: Cluster reformed
+```
+
+### promoteToLeader() Implementation
+
+**Called by election strategy when node wins**:
+
+```java
+public void promoteToLeader() throws RemoteException {
+    synchronized (this) {
+        this.isLeader = true;
+        
+        // Initialize cluster membership
+        this.membershipService = new ClusterMembershipService();
+        membershipService.addNode(this);  // Add self
+        
+        // Populate from cache (critical - new Leader knows about Workers)
+        for (NodeInfo nodeInfo : clusterNodesCache) {
+            if (nodeInfo.getElectionId() != this.nodeIdValue) {
+                Registry registry = LocateRegistry.getRegistry(
+                    nodeInfo.getHost(), nodeInfo.getPort()
+                );
+                NodeService node = (NodeService) registry.lookup("node");
+                membershipService.addNode(node);
+            }
+        }
+        
+        // Stop monitoring (we ARE the Leader now)
+        if (leaderMonitor != null) {
+            leaderMonitor.stop();
+        }
+        
+        // Bind as "leader" in RMI registry
+        myRegistry.rebind("leader", this);
+        
+        log.info("Successfully promoted to Leader with {} nodes", 
+            membershipService.getClusterSize());
+    }
+}
+```
+
+**Key Steps**:
+1. Set `isLeader` flag (enables Leader RMI methods)
+2. Initialize `ClusterMembershipService`
+3. **Populate from cache** (new Leader knows about other Workers)
+4. Stop heartbeat monitoring
+5. Rebind as "leader" in registry
+
+### Worker Reconnection
+
+**When Worker receives COORDINATOR message**:
+
+```java
+@Override
+public void receiveCoordinatorMessage(String newLeaderId, String host, int port) 
+    throws RemoteException {
+    log.info("New Leader elected: {} at {}:{}", newLeaderId, host, port);
+    
+    // Unblock waiting election thread
+    electionStrategy.notifyCoordinatorReceived();
+    
+    // Reconnect to new Leader
+    Registry registry = LocateRegistry.getRegistry(host, port);
+    LeaderService leader = (LeaderService) registry.lookup("leader");
+    this.leaderNode = (NodeService) leader;
+    
+    // Re-register
+    leader.registerNode(this);
+    
+    // Restart heartbeat monitoring
+    if (leaderMonitor != null) {
+        leaderMonitor.stop();
+    }
+    leaderMonitor = new HeartbeatMonitor(
+        leaderNode, 
+        this::onLeaderDied, 
+        this::updateClusterCache,
+        "Leader Monitor"
+    );
+    leaderMonitor.start();
+}
+```
+
+**For complete election documentation**, see:
+- **Bully Algorithm Details**: [Election Component](election.md)
+- **Split-Brain Prevention**: [Troubleshooting Guide](../testing/troubleshooting.md#cache-staleness-split-brain-election-bug)
 
 ---
 
@@ -619,6 +815,7 @@ There are tests covering:
 - Multi-node cluster formation (3 nodes)
 - RMI method invocations (ping, getId, getStatus)
 - Node registration flow (a little useless, considering it's already covered in cluster tests)
+- **Leader Election** (3-node election test)
 
 ---
 
@@ -627,14 +824,57 @@ There are tests covering:
 ### Constructor
 
 ```java
-public NodeImpl(String host, int port) throws RemoteException
+public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException
 ```
 
 **Parameters**:
 - `host` - Hostname for node identification (typically "localhost")
 - `port` - RMI registry port (must be unique per node)
+- `algorithm` - Election algorithm (BULLY, RAFT, RING) from ElectionStrategyFactory.Algorithm
 
 **Throws**: `RemoteException` if RMI export or registry creation fails
+
+**Initialization Sequence**:
+
+```java
+public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException {
+    // 1. Fix RMI hostname resolution
+    if (System.getProperty("java.rmi.server.hostname") == null) {
+        System.setProperty("java.rmi.server.hostname", "localhost");
+    }
+    
+    // 2. Generate unique ID and election ID
+    this.nodeIdValue = System.currentTimeMillis();
+    this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
+    this.port = port;
+    this.isLeader = false;
+    
+    // 3. Create election strategy via factory (Phase 2)
+    this.clusterNodesCache = new ArrayList<>();
+    this.electionStrategy = ElectionStrategyFactory.create(
+        algorithm,                      // Algorithm choice
+        this,                           // Self reference (now fully initialized!)
+        nodeIdValue,                    // Election ID (timestamp)
+        () -> this.clusterNodesCache    // Supplier for lazy cache access
+    );
+    
+    // 4. Export for RMI
+    UnicastRemoteObject.exportObject(this, 0);
+    
+    // 5. Create own RMI Registry (Approach A)
+    this.myRegistry = LocateRegistry.createRegistry(port);
+    this.myRegistry.rebind("node", this);
+}
+```
+
+**Election Strategy Initialization**:
+
+The constructor uses **ElectionStrategyFactory** with a **Supplier Pattern** to avoid cache staleness:
+
+- **Factory Pattern**: Resolves chicken-and-egg dependency (strategy needs NodeImpl reference)
+- **Supplier Pattern**: `() -> this.clusterNodesCache` provides lazy access to fresh cache
+- **Cache Refresh**: HeartbeatMonitor updates cache every 8 heartbeats (~40s)
+
 
 ---
 
