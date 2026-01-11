@@ -20,6 +20,7 @@ HeartbeatMonitor is a **generic watchdog** that can monitor any remote node:
 - ✅ **Non-blocking**: Runs in dedicated daemon thread
 - ✅ **Graceful Shutdown**: Properly cleans up resources
 - ✅ **Defensive**: Handles RMI failures and callback exceptions
+- ✅ **Cache Refresh**: Periodic callback for cluster membership updates (Phase 2)
 
 ---
 
@@ -32,6 +33,9 @@ HeartbeatMonitor is a **generic watchdog** that can monitor any remote node:
 │                 │                          │                 │
 │ HeartbeatMonitor│ <─────────────────────   │  NodeService    │
 │                 │  returns true (alive)    │  impl           │
+│                 │                          │                 │
+│                 │  Every 10 heartbeats:    │                 │
+│                 │  → callback.refreshCache()│                │
 │                 │                          │                 │
 │                 │  If 3 failures:          │                 │
 │                 │  → callback.onNodeDied() │                 │
@@ -96,13 +100,16 @@ private void onWorkerDied(NodeService deadWorker) {
 ```java
 private static final int HEARTBEAT_INTERVAL_MS = 5000;    // 5 seconds
 private static final int MAX_MISSED_HEARTBEATS = 3;       // 15s total timeout
+private static final int CACHE_REFRESH_INTERVAL = 10;     // Refresh every 10 heartbeats
 
 private final ScheduledExecutorService scheduler;         // Thread pool
 private final NodeService targetNode;                     // Remote node to monitor
 private final NodeFailureCallback callback;               // Death notification
+private final CacheRefreshCallback cacheRefreshCallback;  // Periodic cache refresh (Phase 2)
 private final String monitorName;                         // For logging ("Leader Monitor")
 
 private int missedHeartbeats = 0;                         // Failure counter
+private int heartbeatCount = 0;                           // Total heartbeat count (Phase 2)
 private ScheduledFuture<?> heartbeatTask;                 // Task handle for cancellation
 ```
 
@@ -111,13 +118,17 @@ private ScheduledFuture<?> heartbeatTask;                 // Task handle for can
 ## API Reference
 
 ### Constructor
-
 ```java
 public HeartbeatMonitor(NodeService targetNode, 
-                       NodeFailureCallback callback, 
+                       NodeFailureCallback callback,
+                       CacheRefreshCallback cacheRefreshCallback,
                        String monitorName)
 ```
 
+**Parameters**:
+- `targetNode` - Remote node to monitor (RMI stub)
+- `callback` - Function called when node dies
+- `cacheRefreshCallback` - Optional callback for periodic cache refresh (null = disabled)
 **Parameters**:
 - `targetNode` - Remote node to monitor (RMI stub)
 - `callback` - Function called when node dies
@@ -191,11 +202,64 @@ HeartbeatMonitor monitor = new HeartbeatMonitor(
     "Leader Monitor"
 );
 ```
+---
+
+### Cache Refresh Callback (Phase 2)
+
+**Purpose**: Keep cluster membership cache fresh for leader election.
+
+```java
+public interface CacheRefreshCallback {
+    void refreshCache();
+}
+```
+
+**Invocation Schedule**:
+- Called every **8 successful heartbeats** (~40 seconds)
+- Only when `cacheRefreshCallback != null`
+- Only on **successful** pings (not during failures)
+
+
+**Implementation in NodeImpl**:
+
+```java
+private void updateClusterCache() {
+    if (isLeader || leaderNode == null) {
+        return;  // Leaders don't need cache
+    }
+    
+    try {
+        LeaderService leader = (LeaderService) leaderNode;
+        List<NodeInfo> freshNodes = leader.getClusterNodes();
+        
+        this.clusterNodesCache.clear();
+        this.clusterNodesCache.addAll(freshNodes);
+        
+        log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+    } catch (RemoteException e) {
+        log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+    }
+}
+```
+
+**Integration with Election**:
+
+The refreshed cache is consumed by `BullyElection` via Supplier Pattern:
+
+```java
+// BullyElection.startElection()
+List<NodeInfo> clusterNodes = clusterNodesSupplier.get();  // ← Fresh data!
+List<NodeInfo> higherNodes = clusterNodes.stream()
+    .filter(node -> node.getElectionId() > selfElectionId)
+    .collect(Collectors.toList());
+```
+
+**See**: [Election Component Documentation](election.md) for complete election 
 
 ---
 
 ## Heartbeat Algorithm
-
+N.B.: The following diagrams illustrate the heartbeat process and failure detection logic, BUT do not represent the message flow of the Bully Election, neither the cluster cache refresh process, because they are out of scope for this component.
 ### Sequence Diagram
 
 ```mermaid
@@ -434,6 +498,8 @@ See [Heartbeat Testing Guide](../testing/heartbeat.md) for:
 - [DiscoveryService](discovery.md) - Cluster membership management
 - [Heartbeat Testing](../testing/heartbeat.md) - Test procedures and validation
 - [RMI Architecture](../architecture/rmi-design.md) - RMI communication patterns
+- [Election Component](election.md) - Leader election and cache refresh integration
+- [Troubleshooting](../testing/troubleshooting.md) - Cache staleness and split-brain prevention
 
 ---
 
