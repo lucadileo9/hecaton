@@ -4,6 +4,114 @@ Common issues encountered during Hecaton development and their solutions.
 
 ---
 
+
+## Cache Staleness: Split-Brain Election Bug
+
+### Problem
+
+After implementing Bully Election (Phase 2), testing with 3 nodes revealed a critical bug: when the Leader dies, **multiple Workers elect themselves as Leader simultaneously**, creating a split-brain scenario.
+
+**Test scenario:**
+1. Start Leader on port 5001
+2. Worker A joins on port 5002 (cache = [Leader, A])
+3. Worker B joins on port 5003 (cache = [Leader, B])
+4. Kill Leader process (Ctrl+C)
+5. **EXPECTED:** Only Worker B (highest ID) becomes Leader
+6. **ACTUAL:** Both A and B think they're the only Worker and elect themselves!
+
+### Root Cause
+
+**Cache never updates**. So each Worker has an outdated view of the cluster nodes.
+
+**Why this breaks:**
+1. Worker A joins at T=0 → fetches cache = [Leader, A]
+2. Worker B joins at T=5 → fetches cache = [Leader, A, B]
+3. **Worker A's cache NEVER UPDATED** (still thinks only it and Leader exist!)
+4. Leader dies → A thinks no higher nodes exist → elects itself
+5. Leader dies → B thinks only it exists (A in cache has lower ID) → elects itself
+6. **Result:** Two Leaders! (Split-brain)
+
+### Solution: Supplier Pattern for Lazy Cache Evaluation
+
+**Design choice:** Instead of pushing stale cache to the strategy, let the strategy **pull fresh cache** when needed.
+
+**Implementation:**
+
+#### 1. Replace `List<NodeInfo>` with `Supplier<List<NodeInfo>>` in `BullyElection`:
+
+```java
+// BEFORE: Mutable cache field
+private List<NodeInfo> clusterNodes;
+
+public BullyElection(NodeImpl selfNode, long electionId, List<NodeInfo> clusterNodes) {
+    this.clusterNodes = clusterNodes;  // ← Snapshot at CONSTRUCTION time
+}
+
+// AFTER: Lazy supplier
+private final Supplier<List<NodeInfo>> clusterNodesSupplier;
+
+public BullyElection(NodeImpl selfNode, long electionId, Supplier<List<NodeInfo>> supplier) {
+    this.clusterNodesSupplier = supplier;  // ← Lambda, not data!
+}
+```
+
+#### 2. Fetch fresh cache in `startElection()`:
+
+```java
+@Override
+public void startElection() {
+    // Get fresh snapshot from supplier (lazy evaluation)
+    List<NodeInfo> clusterNodes = clusterNodesSupplier.get();  // ← FRESH DATA!
+    
+    List<NodeInfo> higherNodes = clusterNodes.stream()
+        .filter(node -> node.getElectionId() > selfElectionId)
+        .collect(Collectors.toList());
+    // ... rest of election logic ...
+}
+```
+
+
+#### 3. Update `ElectionStrategyFactory`:
+
+```java
+public static ElectionStrategy create(
+        Algorithm algorithm,
+        NodeImpl selfNode,
+        long electionId,
+        Supplier<List<NodeInfo>> clusterNodesSupplier) {  // ← Supplier parameter
+    
+    switch (algorithm) {
+        case BULLY:
+            return new BullyElection(selfNode, electionId, clusterNodesSupplier);
+        // ...
+    }
+}
+```
+
+### Why Supplier Pattern Wins
+
+**Advantages:**
+- ✅ **Lazy evaluation:** Cache fetched ONLY when election starts (not at construction)
+- ✅ **Clean interface:** No setter methods in `ElectionStrategy`
+- ✅ **Immutable strategy:** `clusterNodesSupplier` is `final`, no state mutations
+- ✅ **Fresh data guarantee:** `clusterNodesSupplier.get()` always returns current cache reference
+- ✅ **Testability:** Easy to inject mock suppliers: `() -> Arrays.asList(...)`
+- ✅ **Functional style:** Idiomatic Java 8+ pattern
+
+**Trade-offs accepted:**
+- ⚠️ **Cache still needs periodic refresh** - Supplier only provides fresh *reference*, not fresh *data*
+- ⚠️ **Requires Java 8+** - Uses `java.util.function.Supplier<T>` (project already uses Java 17)
+
+**Alternatives considered:**
+- ❌ **Callback method:** `selfNode.getClusterNodesForElection()` → Couples strategy to NodeImpl method names
+- ❌ **Shared reference:** Pass `CopyOnWriteArrayList` → Harder to test, less explicit intent
+
+### Related Fix: Periodic Cache Refresh
+
+**Important:** Supplier Pattern solves the *access* problem (how strategy gets cache), but doesn't solve the *staleness* problem (cache still never updates).
+---
+
+
 ## RemoteException occurred in server thread;
 ### Problem
 
