@@ -829,7 +829,8 @@ mvn clean test-compile
 |------|-------|----------|--------|
 | 2025-12-27 | PowerShell quote parsing | Use single quotes `'-Dparam=value'` | ✅ Solved |
 | 2025-12-27 | Maven executes wrong class | Remove hardcoded mainClass from pom.xml | ✅ Solved |
-| 2026-01-15 | Circular dependency ElectionStrategy/NodeImpl | Implement ElectionStrategyFactory pattern | ✅ Solved |
+| 2026-01-03 | Circular dependency ElectionStrategy/NodeImpl | Implement ElectionStrategyFactory pattern | ✅ Solved |
+| 2026-01-11 | Split-brain election due to stale cache | Implement Supplier Pattern and periodic cache refresh | ✅ Solved |
 
 ---
 
