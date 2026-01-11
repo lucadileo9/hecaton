@@ -3,6 +3,268 @@
 Common issues encountered during Hecaton development and their solutions.
 
 ---
+## Automatic Cache Refresh via HeartbeatMonitor
+
+### Problem
+
+Even with Supplier Pattern implemented, the cluster cache still becomes stale because it's only populated once during `joinCluster()`. Workers don't know when new nodes join the cluster after them.
+
+**Scenario:**
+1. Worker A joins at T=0 → cache = [Leader, A]
+2. Worker B joins at T=10 → cache = [Leader, A, B]
+3. Worker C joins at T=20 → cache = [Leader, A, B, C]
+4. **Worker A's cache still = [Leader, A]** (never updated!)
+5. **Worker B's cache still = [Leader, A, B]** (doesn't know C exists!)
+
+**Why manual refresh isn't enough:**
+- Workers don't receive notifications when cluster membership changes
+- No event-driven mechanism for cache updates
+- Relying on election time to fetch fresh cache is too late (Leader already dead!)
+
+### Solution: Periodic Refresh via Heartbeat
+
+**Design choice:** Piggyback cache refresh on existing heartbeat mechanism.
+
+**Rationale:**
+- HeartbeatMonitor already pings Leader every 5 seconds
+- Minimal overhead to fetch cluster list every 8 pings (~40 seconds)
+- Automatic - no manual intervention needed
+- Cache stays fresh for election without waiting for failure
+
+**Implementation:**
+
+#### 1. Add `CacheRefreshCallback` interface to `HeartbeatMonitor`:
+
+```java
+// HeartbeatMonitor.java
+public interface CacheRefreshCallback {
+    /**
+     * Called every CACHE_REFRESH_INTERVAL heartbeats to update cluster nodes cache.
+     */
+    void refreshCache();
+}
+```
+
+#### 2. Add heartbeat counter and refresh interval constant:
+
+```java
+private static final int CACHE_REFRESH_INTERVAL = 10;  // Every 10 heartbeats (~50s)
+
+private int heartbeatCount = 0;  // Total heartbeats sent
+private final CacheRefreshCallback cacheRefreshCallback;  // Optional cache refresh
+```
+
+#### 3. Update constructor to accept optional callback:
+
+```java
+public HeartbeatMonitor(
+        NodeService targetNode, 
+        NodeFailureCallback callback,
+        CacheRefreshCallback cacheRefreshCallback,  // ← New parameter (nullable)
+        String monitorName) {
+    
+    this.targetNode = targetNode;
+    this.callback = callback;
+    this.cacheRefreshCallback = cacheRefreshCallback;  // Can be null
+    this.monitorName = monitorName;
+    // ...
+}
+```
+
+#### 4. Trigger refresh every 8 successful heartbeats:
+
+```java
+private void sendHeartbeat() {
+    try {
+        boolean alive = targetNode.ping();
+        
+        if (alive) {
+            missedHeartbeats = 0;
+            heartbeatCount++;  // ← Increment counter
+            
+            log.debug("[{}] Heartbeat OK (count: {})", monitorName, heartbeatCount);
+            
+            // Periodic cache refresh
+            if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
+                log.debug("[{}] Triggering cache refresh (heartbeat #{})", 
+                    monitorName, heartbeatCount);
+                try {
+                    cacheRefreshCallback.refreshCache();  // ← Call callback
+                } catch (Exception e) {
+                    log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
+                    // Continue anyway - old cache better than crash
+                }
+            }
+        }
+        // ...
+    }
+}
+```
+
+#### 5. Implement `updateClusterCache()` in `NodeImpl`:
+
+```java
+/**
+ * Refreshes the cluster nodes cache by fetching latest list from Leader.
+ * Called periodically by HeartbeatMonitor to keep cache up-to-date.
+ * Only runs for Worker nodes (Leader has no cache).
+ */
+private void updateClusterCache() {
+    if (isLeader || leaderNode == null) {
+        return;  // Leaders don't need cache, only Workers do
+    }
+    
+    try {
+        LeaderService leader = (LeaderService) leaderNode;
+        List<NodeInfo> freshNodes = leader.getClusterNodes();
+        
+        // Update cache with fresh data (clear + addAll for thread safety)
+        this.clusterNodesCache.clear();
+        this.clusterNodesCache.addAll(freshNodes);
+        
+        log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+        
+    } catch (RemoteException e) {
+        log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+        // Keep old cache - better than nothing
+    }
+}
+```
+
+#### 6. Pass callback when creating `HeartbeatMonitor`:
+
+```java
+// NodeImpl.joinCluster()
+leaderMonitor = new HeartbeatMonitor(
+    leaderNode, 
+    this::onLeaderDied,          // Failure callback
+    this::updateClusterCache,    // ← Cache refresh callback
+    "Leader Monitor"
+);
+leaderMonitor.start();
+log.info("[OK] Heartbeat monitoring started (cache refresh enabled)");
+```
+
+**Key properties:**
+- ✅ **All Workers eventually get fresh cache** (within 40 seconds)
+- ✅ **No split-brain:** Cache updated before Leader dies (most likely)
+- ✅ **Minimal overhead:** 1 RMI call per 8 heartbeats (vs 1 per heartbeat)
+- ✅ **Fault-tolerant:** Refresh failure doesn't kill heartbeat
+- ✅ **Automatic:** No manual intervention needed
+
+**Alternative rejected: Event-driven updates**
+- ❌ Requires Leader to broadcast membership changes to all Workers
+- ❌ More complex (pub/sub pattern, Worker callbacks)
+- ❌ Overkill for educational project
+- ❌ Periodic refresh simpler and "good enough"
+---
+
+## Cache Staleness: Split-Brain Election Bug
+
+### Problem
+
+After implementing Bully Election (Phase 2), testing with 3 nodes revealed a critical bug: when the Leader dies, **multiple Workers elect themselves as Leader simultaneously**, creating a split-brain scenario.
+
+**Test scenario:**
+1. Start Leader on port 5001
+2. Worker A joins on port 5002 (cache = [Leader, A])
+3. Worker B joins on port 5003 (cache = [Leader, B])
+4. Kill Leader process (Ctrl+C)
+5. **EXPECTED:** Only Worker B (highest ID) becomes Leader
+6. **ACTUAL:** Both A and B think they're the only Worker and elect themselves!
+
+### Root Cause
+
+**Cache never updates**. So each Worker has an outdated view of the cluster nodes.
+
+**Why this breaks:**
+1. Worker A joins at T=0 → fetches cache = [Leader, A]
+2. Worker B joins at T=5 → fetches cache = [Leader, A, B]
+3. **Worker A's cache NEVER UPDATED** (still thinks only it and Leader exist!)
+4. Leader dies → A thinks no higher nodes exist → elects itself
+5. Leader dies → B thinks only it exists (A in cache has lower ID) → elects itself
+6. **Result:** Two Leaders! (Split-brain)
+
+### Solution: Supplier Pattern for Lazy Cache Evaluation
+
+**Design choice:** Instead of pushing stale cache to the strategy, let the strategy **pull fresh cache** when needed.
+
+**Implementation:**
+
+#### 1. Replace `List<NodeInfo>` with `Supplier<List<NodeInfo>>` in `BullyElection`:
+
+```java
+// BEFORE: Mutable cache field
+private List<NodeInfo> clusterNodes;
+
+public BullyElection(NodeImpl selfNode, long electionId, List<NodeInfo> clusterNodes) {
+    this.clusterNodes = clusterNodes;  // ← Snapshot at CONSTRUCTION time
+}
+
+// AFTER: Lazy supplier
+private final Supplier<List<NodeInfo>> clusterNodesSupplier;
+
+public BullyElection(NodeImpl selfNode, long electionId, Supplier<List<NodeInfo>> supplier) {
+    this.clusterNodesSupplier = supplier;  // ← Lambda, not data!
+}
+```
+
+#### 2. Fetch fresh cache in `startElection()`:
+
+```java
+@Override
+public void startElection() {
+    // Get fresh snapshot from supplier (lazy evaluation)
+    List<NodeInfo> clusterNodes = clusterNodesSupplier.get();  // ← FRESH DATA!
+    
+    List<NodeInfo> higherNodes = clusterNodes.stream()
+        .filter(node -> node.getElectionId() > selfElectionId)
+        .collect(Collectors.toList());
+    // ... rest of election logic ...
+}
+```
+
+
+#### 3. Update `ElectionStrategyFactory`:
+
+```java
+public static ElectionStrategy create(
+        Algorithm algorithm,
+        NodeImpl selfNode,
+        long electionId,
+        Supplier<List<NodeInfo>> clusterNodesSupplier) {  // ← Supplier parameter
+    
+    switch (algorithm) {
+        case BULLY:
+            return new BullyElection(selfNode, electionId, clusterNodesSupplier);
+        // ...
+    }
+}
+```
+
+### Why Supplier Pattern Wins
+
+**Advantages:**
+- ✅ **Lazy evaluation:** Cache fetched ONLY when election starts (not at construction)
+- ✅ **Clean interface:** No setter methods in `ElectionStrategy`
+- ✅ **Immutable strategy:** `clusterNodesSupplier` is `final`, no state mutations
+- ✅ **Fresh data guarantee:** `clusterNodesSupplier.get()` always returns current cache reference
+- ✅ **Testability:** Easy to inject mock suppliers: `() -> Arrays.asList(...)`
+- ✅ **Functional style:** Idiomatic Java 8+ pattern
+
+**Trade-offs accepted:**
+- ⚠️ **Cache still needs periodic refresh** - Supplier only provides fresh *reference*, not fresh *data*
+- ⚠️ **Requires Java 8+** - Uses `java.util.function.Supplier<T>` (project already uses Java 17)
+
+**Alternatives considered:**
+- ❌ **Callback method:** `selfNode.getClusterNodesForElection()` → Couples strategy to NodeImpl method names
+- ❌ **Shared reference:** Pass `CopyOnWriteArrayList` → Harder to test, less explicit intent
+
+### Related Fix: Periodic Cache Refresh
+
+**Important:** Supplier Pattern solves the *access* problem (how strategy gets cache), but doesn't solve the *staleness* problem (cache still never updates).
+---
+
 
 ## RemoteException occurred in server thread;
 ### Problem
@@ -126,7 +388,7 @@ Since all manual tests are in `src/test/java/com/hecaton/manual/`, they are comp
 
 ### Solutions
 
-#### ✅ Solution 1: Configure pom.xml (Recommended - Applied)
+#### ✅ Solution 1: Configure pom.xml (Applied)
 
 Add `<classpathScope>test</classpathScope>` to exec-maven-plugin in `pom.xml`:
 
@@ -278,6 +540,199 @@ mvn exec:java -Dexec.mainClass=`"com.hecaton.manual.node.TestLeaderNode`"
 
 ---
 
+## Circular Dependency: ElectionStrategy and NodeImpl
+
+### Problem
+
+When implementing Dependency Injection for `ElectionStrategy`, tests fail with NullPointerException:
+
+```java
+// ❌ FAILS: selfNode is null, selfElectionId is 0
+BullyElection strategy = new BullyElection(null, 0, new ArrayList<>());
+NodeImpl node = new NodeImpl("localhost", 5001, strategy);
+```
+
+**Error message:**
+```
+java.lang.NullPointerException: Cannot invoke "com.hecaton.node.NodeImpl.getId()" because "this.selfNode" is null
+    at com.hecaton.election.bully.BullyElection.startElection(BullyElection.java:75)
+```
+
+**Additional symptoms:**
+- Election always uses ID `0` instead of node's timestamp
+- Cannot call methods on `selfNode` during election (it's null)
+- Tests compile but fail at runtime when election starts
+
+### Root Cause
+
+Classic **chicken-and-egg dependency problem**:
+
+1. To create `BullyElection`, you need a reference to `NodeImpl` (for `selfNode` parameter)
+2. To create `NodeImpl` with Dependency Injection, you need an `ElectionStrategy` instance
+3. But `NodeImpl` doesn't exist yet when creating `BullyElection`!
+
+```java
+// ❌ Circular dependency
+BullyElection strategy = new BullyElection(
+    node,           // ← node doesn't exist yet!
+    nodeId,         // ← don't know the ID yet!
+    clusterCache    // ← cache not initialized yet!
+);
+
+NodeImpl node = new NodeImpl("localhost", port, strategy);  // ← strategy is broken!
+```
+
+**Why passing `null` doesn't work:**
+- `BullyElection` stores `selfNode` as `final` field
+- When `startElection()` is called, it tries to use `selfNode.getId()` → NullPointerException
+- Election ID remains `0` instead of using node's actual timestamp
+
+### Solutions Considered
+
+#### ❌ Option 1: NodeImpl Creates Strategy Internally (Rejected)
+
+```java
+public NodeImpl(String host, int port) throws RemoteException {
+    // ... initialization ...
+    this.electionStrategy = new BullyElection(this, nodeIdValue, clusterNodesCache);
+}
+```
+
+**Pros:**
+- Simple, no chicken-and-egg problem
+
+**Cons:**
+- Hardcodes `BullyElection` inside `NodeImpl`
+- Violates Dependency Inversion Principle
+- Cannot swap algorithms without modifying `NodeImpl`
+- Not elegant
+
+#### ❌ Option 2: Setter Post-Construction (Rejected)
+
+```java
+NodeImpl node = new NodeImpl("localhost", port);
+BullyElection strategy = new BullyElection(node, node.getElectionId(), new ArrayList<>());
+node.setElectionStrategy(strategy);
+```
+
+**Pros:**
+- Resolves circular dependency
+- Flexible
+
+**Cons:**
+- `NodeImpl` in invalid state until `setElectionStrategy()` is called
+- Easy to forget calling setter → runtime errors
+- More verbose
+- Not elegant
+
+#### ❌ Option 3: Multiple Static Factory Methods (Rejected)
+
+```java
+NodeImpl node = NodeImpl.createWithBullyElection("localhost", 5001);
+NodeImpl node = NodeImpl.createWithRaftElection("localhost", 5001);
+```
+
+**Pros:**
+- Clean API
+
+**Cons:**
+- Need one factory method per algorithm
+- Scales poorly (10 algorithms = 10 methods)
+- Still couples `NodeImpl` to concrete implementations
+- Not elegant
+
+#### ✅ Option 4: ElectionStrategyFactory Pattern (CHOSEN)
+
+**Implementation:** Create a dedicated factory class that centralizes strategy creation logic.
+
+**File: `ElectionStrategyFactory.java`**
+```java
+public class ElectionStrategyFactory {
+    
+    public enum Algorithm {
+        BULLY,
+        RAFT,   // Future
+        RING    // Future
+    }
+    
+    public static ElectionStrategy create(
+            Algorithm algorithm,
+            NodeImpl selfNode, 
+            long electionId, 
+            List<NodeInfo> clusterNodes) {
+        
+        switch (algorithm) {
+            case BULLY:
+                return new BullyElection(selfNode, electionId, clusterNodes);
+            case RAFT:
+                throw new UnsupportedOperationException("Raft not yet implemented");
+            default:
+                throw new IllegalArgumentException("Unknown algorithm: " + algorithm);
+        }
+    }
+}
+```
+
+**Updated `NodeImpl` constructor:**
+```java
+public NodeImpl(String host, int port, ElectionStrategyFactory.Algorithm algorithm) 
+        throws RemoteException {
+    
+    // Initialize node fields FIRST
+    this.nodeIdValue = System.currentTimeMillis();
+    this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
+    this.port = port;
+    this.clusterNodesCache = new ArrayList<>();
+    
+    // NOW create strategy with fully-initialized node reference
+    this.electionStrategy = ElectionStrategyFactory.create(
+        algorithm,          // ← Enum for type safety
+        this,               // ← 'this' is now valid!
+        nodeIdValue,        // ← Real timestamp
+        clusterNodesCache   // ← Real cache reference
+    );
+    
+    // ... rest of initialization ...
+}
+```
+
+**Usage in tests (clean and simple):**
+```java
+import static com.hecaton.election.ElectionStrategyFactory.Algorithm;
+
+// Leader
+NodeImpl leader = new NodeImpl("localhost", 5001, Algorithm.BULLY);
+
+// Worker
+NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
+
+// Future: switching to Raft is trivial
+NodeImpl node = new NodeImpl("localhost", 5003, Algorithm.RAFT);
+```
+
+### Why Factory Pattern Wins
+
+**Advantages:**
+- ✅ **Elegant**: Single point of strategy creation
+- ✅ **Scalable**: Adding Raft = one new `case` statement
+- ✅ **Type-safe**: Enum prevents typos (compile-time safety)
+- ✅ **Flexible**: Easy to swap algorithms via constructor parameter
+- ✅ **SOLID compliant**: Follows Dependency Inversion and Open/Closed principles
+- ✅ **No invalid state**: Node always has a valid strategy after construction
+- ✅ **Clean tests**: No boilerplate, just specify algorithm enum
+
+**Trade-offs accepted:**
+- ⚠️ Algorithm selection happens at compile-time (constructor parameter)
+- ⚠️ Factory must know about all concrete implementations
+
+**Design Decision:** Algorithm selection at node creation time is acceptable because:
+1. Election algorithm is a fundamental architectural choice, not runtime configuration
+2. Changing algorithms requires cluster-wide coordination anyway
+3. For educational project, compile-time selection is sufficient
+
+
+---
+
 ## RMI Connection Issues
 
 ### Port Already in Use
@@ -374,6 +829,8 @@ mvn clean test-compile
 |------|-------|----------|--------|
 | 2025-12-27 | PowerShell quote parsing | Use single quotes `'-Dparam=value'` | ✅ Solved |
 | 2025-12-27 | Maven executes wrong class | Remove hardcoded mainClass from pom.xml | ✅ Solved |
+| 2026-01-03 | Circular dependency ElectionStrategy/NodeImpl | Implement ElectionStrategyFactory pattern | ✅ Solved |
+| 2026-01-11 | Split-brain election due to stale cache | Implement Supplier Pattern and periodic cache refresh | ✅ Solved |
 
 ---
 

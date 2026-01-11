@@ -1,5 +1,6 @@
 package com.hecaton.manual.monitor;
 
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 
 /**
@@ -59,9 +60,7 @@ public class TestLeaderHeartbeat {
         System.out.println();
         
         // Create Worker node on port 5002
-        NodeImpl worker = new NodeImpl("localhost", 5002);
-        
-        // Join cluster (this will start heartbeat monitor)
+        NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
         worker.joinCluster("localhost", 5001);
         
         System.out.println("[OK] Worker joined cluster and monitoring Leader");

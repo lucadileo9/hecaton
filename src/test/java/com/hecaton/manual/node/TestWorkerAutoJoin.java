@@ -1,5 +1,6 @@
 package com.hecaton.manual.node;
 
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +39,8 @@ public class TestWorkerAutoJoin {
             log.info("Creating Worker on port 5002...");
             
             // Create Worker node
-            NodeImpl worker = new NodeImpl("localhost", 5002);
+            // Create election strategy for Worker
+            NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
             
             // Automatically discover and join cluster (NEW METHOD)
             log.info("Starting automatic Leader discovery (timeout: 5000ms)...");

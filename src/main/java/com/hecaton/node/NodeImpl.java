@@ -4,6 +4,9 @@ import com.hecaton.discovery.ClusterMembershipService;
 import com.hecaton.discovery.LeaderDiscoveryStrategy;
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.discovery.UdpDiscoveryService;
+import com.hecaton.election.ElectionStrategy;
+import com.hecaton.election.ElectionStrategyFactory;
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
@@ -16,6 +19,9 @@ import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * Core implementation of a Hecaton node.
@@ -42,14 +48,18 @@ public class NodeImpl implements NodeService, LeaderService {
     // Reference to Leader (for Workers)
     private NodeService leaderNode;
     
+    private ElectionStrategy electionStrategy;
+    private List<NodeInfo> clusterNodesCache;  // Cache for Worker nodes to run election
+    
     /**
      * Creates a new node instance.
      * Each node creates its own RMI Registry on the specified port.
      * @param host Host address (e.g. "localhost" or "192.168.1.10")
      * @param port RMI registry port
+     * @param algorithm Election algorithm to use (BULLY, RAFT, RING)
      * @throws RemoteException if RMI export fails
      */
-    public NodeImpl(String host, int port) throws RemoteException {
+    public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException {
         // This prevents "Connection refused" errors when RMI auto-detects wrong IP on multi-NIC systems
         if (System.getProperty("java.rmi.server.hostname") == null) {
             System.setProperty("java.rmi.server.hostname", "localhost");
@@ -59,6 +69,15 @@ public class NodeImpl implements NodeService, LeaderService {
         this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
         this.port = port;
         this.isLeader = false;
+        
+        // Create election strategy via factory
+        this.clusterNodesCache = new ArrayList<>();
+        this.electionStrategy = ElectionStrategyFactory.create(
+            algorithm,                      // Algorithm choice
+            this,                           // Self reference (now fully initialized!)
+            nodeIdValue,                    // Election ID
+            () -> this.clusterNodesCache    // Supplier for lazy cache access
+        );
         
         // Export this object for RMI (makes it remotely callable)
         UnicastRemoteObject.exportObject(this, 0);
@@ -121,12 +140,27 @@ public class NodeImpl implements NodeService, LeaderService {
         // Register with Leader (Leader will store reference to our "node" binding)
         leader.registerNode(this);
         
+        // Phase 2: Cache cluster nodes for election
+        try {
+            this.clusterNodesCache = leader.getClusterNodes();
+            log.debug("Cached {} cluster nodes for election", clusterNodesCache.size());
+            
+        } catch (RemoteException e) {
+            log.warn("Failed to cache cluster nodes: {}", e.getMessage());
+            // Continue anyway - election will work with empty list initially
+        }
+        
         log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
         
-        // Start monitoring Leader's health
-        leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, "Leader Monitor");
+        // Start monitoring Leader's health with periodic cache refresh
+        leaderMonitor = new HeartbeatMonitor(
+            leaderNode, 
+            this::onLeaderDied, 
+            this::updateClusterCache,  
+            "Leader Monitor"
+        );
         leaderMonitor.start();
-        log.info("[OK] Heartbeat monitoring started for Leader");
+        log.info("[OK] Heartbeat monitoring started for Leader (cache refresh enabled)");
     }
     
     /**
@@ -175,6 +209,61 @@ public class NodeImpl implements NodeService, LeaderService {
     public String getStatus() throws RemoteException {
         return isLeader ? "LEADER" : "WORKER";
     }
+        
+    @Override
+    public long getElectionId() throws RemoteException {
+        return nodeIdValue;
+    }
+    
+    @Override
+    public void receiveElectionMessage(String candidateId, long candidateElectionId) 
+        throws RemoteException {
+        log.info("Received ELECTION from {} (ID: {})", candidateId, candidateElectionId);
+        
+        if (candidateElectionId < this.nodeIdValue) {
+            // My ID is higher → start my own election
+            log.info("My ID {} is higher. Starting own election", nodeIdValue);
+            
+            CompletableFuture.runAsync(() -> {
+                electionStrategy.startElection();
+            });
+            
+        } else {
+            // Candidate has higher ID → accept
+            log.info("Candidate has higher ID, accepting");
+        }
+    }
+    
+    @Override
+    public void receiveCoordinatorMessage(String newLeaderId, String leaderHost, int leaderPort) 
+        throws RemoteException {
+        log.info("New Leader elected: {} at {}:{}", newLeaderId, leaderHost, leaderPort);
+        
+        // Notify election strategy (works for ANY implementation, not just Bully)
+        electionStrategy.notifyCoordinatorReceived();
+        
+        try {
+            // Reconnect to new Leader
+            Registry leaderRegistry = LocateRegistry.getRegistry(leaderHost, leaderPort);
+            LeaderService leader = (LeaderService) leaderRegistry.lookup("leader");
+            this.leaderNode = (NodeService) leader;
+            
+            // Re-register with new Leader
+            leader.registerNode(this);
+            
+            // Restart HeartbeatMonitor for new Leader
+            if (leaderMonitor != null) {
+                leaderMonitor.stop();
+            }
+            leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, this::updateClusterCache, "Leader Monitor");
+            leaderMonitor.start();
+            
+            log.info("Successfully reconnected to new Leader");
+            
+        } catch (Exception e) {
+            log.error("Failed to reconnect to new Leader: {}", e.getMessage(), e);
+        }
+    }
     
     // ==================== LeaderService Implementation ====================
     
@@ -198,10 +287,29 @@ public class NodeImpl implements NodeService, LeaderService {
     }
     
     @Override
-    public boolean requestElection(String candidateId) throws RemoteException {
-        log.info("Election request from {}", candidateId);
-        // TODO
-        return true;
+    public List<NodeInfo> getClusterNodes() throws RemoteException {
+        if (!isLeader || membershipService == null) {
+            throw new RemoteException("Not a Leader or no membership service available");
+        }
+        
+        // Convert NodeService list to NodeInfo DTO list
+        return membershipService.getActiveNodes().stream()
+            .map(node -> {
+                try {
+                    String id = node.getId();
+                    return new NodeInfo(
+                        id,
+                        extractHost(id),
+                        extractPort(id),
+                        node.getElectionId()
+                    );
+                } catch (RemoteException e) {
+                    log.warn("Failed to get info from node: {}", e.getMessage());
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
     }
     
     /**
@@ -229,15 +337,94 @@ public class NodeImpl implements NodeService, LeaderService {
     
     /**
      * Callback invoked when the Leader is detected as dead.
-     * This triggers leader election protocol (to be implemented in Phase 2).
+     * Triggers Bully Election algorithm (Phase 2).
      * @param deadLeader The Leader node that died
      */
     private void onLeaderDied(NodeService deadLeader) {
         log.error("[ALERT] LEADER IS DEAD! Node {} no longer responding", getNodeIdSafe(deadLeader));
-        log.error("[TODO] Leader election will be implemented in Phase 2");
-        // TODO Phase 2: Start Bully Election algorithm
-        // BullyElection election = new BullyElection(nodeIdValue, nodeId, ...);
-        // election.startElection();
+        log.error("Starting Bully Election protocol...");
+        // Launch election asynchronously (don't block HeartbeatMonitor thread)
+        // Strategy will fetch fresh cache via supplier when needed
+        CompletableFuture.runAsync(() -> {
+            electionStrategy.startElection();
+        });
+    }
+    
+    /**
+     * Refreshes the cluster nodes cache by fetching latest list from Leader.
+     * Called periodically by HeartbeatMonitor to keep cache up-to-date.
+     * Only runs for Worker nodes (Leader has no cache).
+     */
+    private void updateClusterCache() {
+        if (isLeader || leaderNode == null) {
+            return; // Leaders don't need cache, only Workers do
+        }
+        
+        try {
+            LeaderService leader = (LeaderService) leaderNode;
+            List<NodeInfo> freshNodes = leader.getClusterNodes();
+            
+            // Update cache with fresh data
+            this.clusterNodesCache.clear();
+            this.clusterNodesCache.addAll(freshNodes);
+            
+            log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+            
+        } catch (RemoteException e) {
+            log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+            // Keep old cache - better than nothing
+        }
+    }
+    
+    /**
+     * Promotes this node to Leader after winning election.
+     * Called by BullyElection when this node has the highest ID among surviving nodes.
+     * 
+     * @throws RemoteException if RMI operations fail
+     */
+    public void promoteToLeader() throws RemoteException {
+        log.info("Promoting to Leader...");
+        
+        synchronized (this) {
+            if (isLeader) { // if already Leader, don't do anything
+                log.warn("Already Leader, skipping promotion");
+                return;
+            }
+            
+            this.isLeader = true; //otherwise, set to Leader
+            
+            // Initialize cluster membership service
+            this.membershipService = new ClusterMembershipService();
+            membershipService.addNode(this);  // Add self
+            
+            // Populate membership with cached nodes from cluster
+            // This is critical - new Leader needs to know about other Workers!
+            for (NodeInfo nodeInfo : clusterNodesCache) {
+                if (nodeInfo.getElectionId() != this.nodeIdValue) {
+                    try {
+                        Registry registry = LocateRegistry.getRegistry(nodeInfo.getHost(), nodeInfo.getPort());
+                        NodeService node = (NodeService) registry.lookup("node");
+                        membershipService.addNode(node);
+                        log.debug("Added node {} to new Leader's membership", nodeInfo.getNodeId());
+                    } catch (Exception e) {
+                        log.warn("Failed to add cached node {} to membership: {}", nodeInfo.getNodeId(), e.getMessage());
+                    }
+                }
+            }
+            
+            // Stop monitoring old Leader (we ARE the Leader now)
+            if (leaderMonitor != null) {
+                leaderMonitor.stop();
+                leaderMonitor = null;
+            }
+            this.leaderNode = null;
+            
+            // Bind as "leader" in RMI registry
+            myRegistry.rebind("leader", this);
+            
+            log.info("Successfully promoted to Leader on port {} with {} nodes in cluster", 
+                port, membershipService.getClusterSize());
+        }
     }
     
     /**
@@ -289,6 +476,32 @@ public class NodeImpl implements NodeService, LeaderService {
             return node.getId();
         } catch (RemoteException e) {
             return "unknown-node";
+        }
+    }
+    
+    /**
+     * Helper method to extract host from node ID string.
+     * Node ID format: "node-localhost-5002-1735564820000"
+     * @param nodeId Node ID string
+     * @return Host portion ("localhost")
+     */
+    private String extractHost(String nodeId) {
+        String[] parts = nodeId.split("-");
+        return parts.length > 1 ? parts[1] : "localhost";
+    }
+    
+    /**
+     * Helper method to extract port from node ID string.
+     * Node ID format: "node-localhost-5002-1735564820000"
+     * @param nodeId Node ID string
+     * @return Port number (5002)
+     */
+    private int extractPort(String nodeId) {
+        String[] parts = nodeId.split("-");
+        try {
+            return parts.length > 2 ? Integer.parseInt(parts[2]) : 5001;
+        } catch (NumberFormatException e) {
+            return 5001;  // Default port
         }
     }
 }
