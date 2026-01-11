@@ -3,7 +3,161 @@
 Common issues encountered during Hecaton development and their solutions.
 
 ---
+## Automatic Cache Refresh via HeartbeatMonitor
 
+### Problem
+
+Even with Supplier Pattern implemented, the cluster cache still becomes stale because it's only populated once during `joinCluster()`. Workers don't know when new nodes join the cluster after them.
+
+**Scenario:**
+1. Worker A joins at T=0 → cache = [Leader, A]
+2. Worker B joins at T=10 → cache = [Leader, A, B]
+3. Worker C joins at T=20 → cache = [Leader, A, B, C]
+4. **Worker A's cache still = [Leader, A]** (never updated!)
+5. **Worker B's cache still = [Leader, A, B]** (doesn't know C exists!)
+
+**Why manual refresh isn't enough:**
+- Workers don't receive notifications when cluster membership changes
+- No event-driven mechanism for cache updates
+- Relying on election time to fetch fresh cache is too late (Leader already dead!)
+
+### Solution: Periodic Refresh via Heartbeat
+
+**Design choice:** Piggyback cache refresh on existing heartbeat mechanism.
+
+**Rationale:**
+- HeartbeatMonitor already pings Leader every 5 seconds
+- Minimal overhead to fetch cluster list every 8 pings (~40 seconds)
+- Automatic - no manual intervention needed
+- Cache stays fresh for election without waiting for failure
+
+**Implementation:**
+
+#### 1. Add `CacheRefreshCallback` interface to `HeartbeatMonitor`:
+
+```java
+// HeartbeatMonitor.java
+public interface CacheRefreshCallback {
+    /**
+     * Called every CACHE_REFRESH_INTERVAL heartbeats to update cluster nodes cache.
+     */
+    void refreshCache();
+}
+```
+
+#### 2. Add heartbeat counter and refresh interval constant:
+
+```java
+private static final int CACHE_REFRESH_INTERVAL = 10;  // Every 10 heartbeats (~50s)
+
+private int heartbeatCount = 0;  // Total heartbeats sent
+private final CacheRefreshCallback cacheRefreshCallback;  // Optional cache refresh
+```
+
+#### 3. Update constructor to accept optional callback:
+
+```java
+public HeartbeatMonitor(
+        NodeService targetNode, 
+        NodeFailureCallback callback,
+        CacheRefreshCallback cacheRefreshCallback,  // ← New parameter (nullable)
+        String monitorName) {
+    
+    this.targetNode = targetNode;
+    this.callback = callback;
+    this.cacheRefreshCallback = cacheRefreshCallback;  // Can be null
+    this.monitorName = monitorName;
+    // ...
+}
+```
+
+#### 4. Trigger refresh every 8 successful heartbeats:
+
+```java
+private void sendHeartbeat() {
+    try {
+        boolean alive = targetNode.ping();
+        
+        if (alive) {
+            missedHeartbeats = 0;
+            heartbeatCount++;  // ← Increment counter
+            
+            log.debug("[{}] Heartbeat OK (count: {})", monitorName, heartbeatCount);
+            
+            // Periodic cache refresh
+            if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
+                log.debug("[{}] Triggering cache refresh (heartbeat #{})", 
+                    monitorName, heartbeatCount);
+                try {
+                    cacheRefreshCallback.refreshCache();  // ← Call callback
+                } catch (Exception e) {
+                    log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
+                    // Continue anyway - old cache better than crash
+                }
+            }
+        }
+        // ...
+    }
+}
+```
+
+#### 5. Implement `updateClusterCache()` in `NodeImpl`:
+
+```java
+/**
+ * Refreshes the cluster nodes cache by fetching latest list from Leader.
+ * Called periodically by HeartbeatMonitor to keep cache up-to-date.
+ * Only runs for Worker nodes (Leader has no cache).
+ */
+private void updateClusterCache() {
+    if (isLeader || leaderNode == null) {
+        return;  // Leaders don't need cache, only Workers do
+    }
+    
+    try {
+        LeaderService leader = (LeaderService) leaderNode;
+        List<NodeInfo> freshNodes = leader.getClusterNodes();
+        
+        // Update cache with fresh data (clear + addAll for thread safety)
+        this.clusterNodesCache.clear();
+        this.clusterNodesCache.addAll(freshNodes);
+        
+        log.debug("Cluster cache refreshed: {} nodes", clusterNodesCache.size());
+        
+    } catch (RemoteException e) {
+        log.warn("Failed to refresh cluster cache: {}", e.getMessage());
+        // Keep old cache - better than nothing
+    }
+}
+```
+
+#### 6. Pass callback when creating `HeartbeatMonitor`:
+
+```java
+// NodeImpl.joinCluster()
+leaderMonitor = new HeartbeatMonitor(
+    leaderNode, 
+    this::onLeaderDied,          // Failure callback
+    this::updateClusterCache,    // ← Cache refresh callback
+    "Leader Monitor"
+);
+leaderMonitor.start();
+log.info("[OK] Heartbeat monitoring started (cache refresh enabled)");
+```
+
+**Key properties:**
+- ✅ **All Workers eventually get fresh cache** (within 40 seconds)
+- ✅ **No split-brain:** Cache updated before Leader dies (most likely)
+- ✅ **Minimal overhead:** 1 RMI call per 8 heartbeats (vs 1 per heartbeat)
+- ✅ **Fault-tolerant:** Refresh failure doesn't kill heartbeat
+- ✅ **Automatic:** No manual intervention needed
+
+**Alternative rejected: Event-driven updates**
+- ❌ Requires Leader to broadcast membership changes to all Workers
+- ❌ More complex (pub/sub pattern, Worker callbacks)
+- ❌ Overkill for educational project
+- ❌ Periodic refresh simpler and "good enough"
+---
 
 ## Cache Staleness: Split-Brain Election Bug
 
