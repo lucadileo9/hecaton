@@ -94,7 +94,7 @@ public final class ExecutionContext implements Serializable {
     
     @Override
     public String toString() {
-        return String.format("ExecutionContext[worker=%s, %s:%d, leader=%s, %s]",
+        return String.format("ExecutionContext[worker=%s, %d, leader=%s, %s]",
             workerId, port, isLeader, capabilities);
     }
     
