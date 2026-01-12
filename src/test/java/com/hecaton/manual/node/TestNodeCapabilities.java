@@ -1,8 +1,13 @@
 package com.hecaton.manual.node;
 
 import com.hecaton.node.NodeCapabilities;
+import com.hecaton.node.NodeImpl;
 import com.hecaton.task.Task;
 import com.hecaton.task.TaskResult;
+
+import ch.qos.logback.core.pattern.parser.Node;
+
+import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.ExecutionContext;
 
 public class TestNodeCapabilities {
@@ -54,6 +59,26 @@ public class TestNodeCapabilities {
         System.out.println(jobSuccess);
         System.out.println("  Formatted time: " + jobSuccess.getFormattedExecutionTime());
         System.out.println(jobNotFound);
+
+        // Test node initialization with capabilities
+        System.out.println("\n=== Test Node Initialization with Capabilities ===\n");
+        try {
+            NodeImpl leader = new NodeImpl("localhost", 5000, Algorithm.BULLY);
+            leader.startAsLeader();
+            System.out.println("Leader started with capabilities: " + leader.getCapabilities());
+            System.out.println("Leader Execution Context: " + leader.getExecutionContext());
+
+            NodeImpl worker = new NodeImpl("localhost", 5001, Algorithm.BULLY);
+            // N.B.: to connect to leader, we should put this in another terminal, but in this test we just start the node
+            // because we don't need a real connection for capability testing
+
+            System.out.println("Worker joined with capabilities: " + worker.getCapabilities());
+            System.out.println("Worker Execution Context: " + worker.getExecutionContext());
+
+        } catch (Exception e) {
+            System.err.println("Failed to start leader node: " + e.getMessage());
+        }
+
         
         System.out.println("\n=== All Tests Passed ===");
     }
