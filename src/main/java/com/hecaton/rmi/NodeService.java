@@ -3,6 +3,8 @@ package com.hecaton.rmi;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
 
+import com.hecaton.node.NodeCapabilities;
+
 /**
  * Remote interface exposed by each node.
  * MUST extend Remote to be usable via RMI.
@@ -62,4 +64,15 @@ public interface NodeService extends Remote {
      */
     void receiveCoordinatorMessage(String newLeaderId, String leaderHost, int leaderPort) 
         throws RemoteException;
+
+    /**
+     * Returns the hardware capabilities of this node.
+     * @return NodeCapabilities object describing CPU, RAM, Disk
+     * @throws RemoteException if RMI communication fails
+     * 
+     * N.B.: This method return a sort of run-time snapshot of the node capabilities, that
+     * are subsequently stored in the ExecutionContext at the time of task execution.
+     * 
+     */
+    NodeCapabilities getCapabilities() throws RemoteException;
 }

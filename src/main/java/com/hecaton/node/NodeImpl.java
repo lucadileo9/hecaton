@@ -50,6 +50,9 @@ public class NodeImpl implements NodeService, LeaderService {
     
     private ElectionStrategy electionStrategy;
     private List<NodeInfo> clusterNodesCache;  // Cache for Worker nodes to run election
+
+    // Node capabilities (static for now)
+    public final NodeCapabilities capabilities;
     
     /**
      * Creates a new node instance.
@@ -79,6 +82,8 @@ public class NodeImpl implements NodeService, LeaderService {
             () -> this.clusterNodesCache    // Supplier for lazy cache access
         );
         
+        this.capabilities = NodeCapabilities.detect(); // Detect static capabilities
+
         // Export this object for RMI (makes it remotely callable)
         UnicastRemoteObject.exportObject(this, 0);
         
@@ -503,5 +508,15 @@ public class NodeImpl implements NodeService, LeaderService {
         } catch (NumberFormatException e) {
             return 5001;  // Default port
         }
+    }
+
+    @Override
+    public NodeCapabilities getCapabilities() throws RemoteException {
+        return this.capabilities;
+    }
+
+    public ExecutionContext getExecutionContext() {
+        return new ExecutionContext(nodeId, port, isLeader, capabilities);
+
     }
 }
