@@ -2,10 +2,7 @@ package com.hecaton.manual.node;
 
 import com.hecaton.node.NodeCapabilities;
 import com.hecaton.node.NodeImpl;
-import com.hecaton.task.Task;
 import com.hecaton.task.TaskResult;
-
-import ch.qos.logback.core.pattern.parser.Node;
 
 import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.ExecutionContext;
