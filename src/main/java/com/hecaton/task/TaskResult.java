@@ -10,6 +10,8 @@ import java.io.Serializable;
  * - notFound, task completed but no result (e.g., password not in range)
  * - failure, task failed with error
  * - cancelled, task was cancelled (early termination)
+ * 
+ * Created by {@code TaskExecutor} after task completion.
  */
 public final class TaskResult implements Serializable {
     
