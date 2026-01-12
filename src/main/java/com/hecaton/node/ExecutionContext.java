@@ -17,7 +17,6 @@ public final class ExecutionContext implements Serializable {
     private static final long serialVersionUID = 1L;
     
     private final String workerId;
-    private final String host;
     private final int port;
     private final boolean isLeader;
     private final NodeCapabilities capabilities;
@@ -26,15 +25,13 @@ public final class ExecutionContext implements Serializable {
      * Creates a new ExecutionContext.
      * 
      * @param workerId unique ID of the worker
-     * @param host hostname of the worker
      * @param port RMI port of the worker
      * @param isLeader true if this node is the leader
      * @param capabilities hardware capabilities of the node
      */
-    public ExecutionContext(String workerId, String host, int port, 
+    public ExecutionContext(String workerId, int port, 
                            boolean isLeader, NodeCapabilities capabilities) {
         this.workerId = workerId;
-        this.host = host;
         this.port = port;
         this.isLeader = isLeader;
         this.capabilities = capabilities;
@@ -49,12 +46,6 @@ public final class ExecutionContext implements Serializable {
         return workerId;
     }
     
-    /**
-     * @return Hostname of the worker
-     */
-    public String getHost() {
-        return host;
-    }
     
     /**
      * @return RMI port of the worker
@@ -104,7 +95,7 @@ public final class ExecutionContext implements Serializable {
     @Override
     public String toString() {
         return String.format("ExecutionContext[worker=%s, %s:%d, leader=%s, %s]",
-            workerId, host, port, isLeader, capabilities);
+            workerId, port, isLeader, capabilities);
     }
     
     /**
