@@ -23,7 +23,15 @@ public class TestStrategies {
         
         // Test DynamicSplitting
         System.out.println("--- DynamicSplitting(50) ---");
-        
+        /* 
+        In this case the dinamic splitting strategy would divide the tasks
+        based on the number of workers and the specified tasks per worker (50).
+        With 3 workers, we expect 150 tasks to be created.
+
+        Because the idea of DynamicSplitting is to create a number of tasks
+        proportional to the number of available workers, allowing for better
+        load balancing and resource utilization.
+         */
         SplittingStrategy dynamic = new DynamicSplitting(50);
         List<Task> dynamicTasks = dynamic.split(mockJob, workers);
         System.out.println("Created " + dynamicTasks.size() + " tasks");
@@ -31,6 +39,12 @@ public class TestStrategies {
         
         // Test UniformSplitting
         System.out.println("--- UniformSplitting ---");
+        /*
+        In this case, the uniform splitting strategy creates one (big) task per worker,
+        resulting in a total of 3 tasks for 3 workers. This approach ensures that each worker gets an equal share of the workload,
+        regardless of their individual capabilities.
+        Than we could exepect that each worker will handle one task, maybe parallelizing internally if needed.
+        */
         SplittingStrategy uniform = new UniformSplitting();
         List<Task> uniformTasks = uniform.split(mockJob, workers);
         System.out.println("Created " + uniformTasks.size() + " tasks");
@@ -38,6 +52,12 @@ public class TestStrategies {
         
         // Test WeightedSplitting
         System.out.println("--- WeightedSplitting(100) ---");
+        /*
+        In this case, the weighted splitting strategy creates tasks based on the capabilities of each worker.
+        Given the CPU cores of the workers (8, 4, and 2), we expect the tasks to be distributed in a 4:2:1 ratio.
+        With a total of 100 tasks, this results in approximately 57 tasks for worker-1, 29 tasks for worker-2, and 14 tasks for worker-3.
+        This approach optimizes resource utilization by assigning more tasks to more capable workers.
+        */
         SplittingStrategy weighted = new WeightedSplitting(100);
         List<Task> weightedTasks = weighted.split(mockJob, workers);
         System.out.println("Created " + weightedTasks.size() + " tasks");
@@ -63,6 +83,12 @@ public class TestStrategies {
         );
         
         // Test RoundRobinAssignment
+        /*
+        Here we are using RoundRobinAssignment with the dynamically created tasks (150 tasks).
+        The RoundRobin strategy distributes tasks evenly across all available workers in a cyclic manner.
+        Given 150 tasks and 3 workers, we expect each worker to receive an equal number of tasks, resulting in 50 tasks per worker.
+        This approach ensures a balanced workload distribution, preventing any single worker from being overloaded while others remain
+        */
         System.out.println("--- RoundRobinAssignment ---");
         AssignmentStrategy roundRobin = new RoundRobinAssignment();
         Map<String, List<Task>> rrResult = roundRobin.assign(dynamicTasks, workerInfos);
