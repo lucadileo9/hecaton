@@ -139,7 +139,9 @@ public class WeightedSplitting implements SplittingStrategy {
     }
     
     /**
-     * Wrapper interno che aggiunge targetWorkerId a una Task.
+     * This is a wrapper of Task that adds a targetWorkerId.
+     * So this will be used when I want to assign a task to a specific worker.
+     * It is a way to "annotate" tasks without modifying the original Task implementation.
      */
     private static class TargetedTaskWrapper implements Task {
         
