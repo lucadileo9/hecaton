@@ -7,6 +7,7 @@ import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.election.ElectionStrategy;
 import com.hecaton.election.ElectionStrategyFactory;
 import com.hecaton.election.ElectionStrategyFactory.Algorithm;
+import com.hecaton.monitor.FailureDetector;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
@@ -39,6 +40,9 @@ public class NodeImpl implements NodeService, LeaderService {
     
     // Cluster membership registry (only for Leader)
     private ClusterMembershipService membershipService;
+    
+    // Failure detector (only for Leader, monitors worker heartbeats)
+    private FailureDetector failureDetector;
     
     // Leader discovery strategy
     private LeaderDiscoveryStrategy discoveryStrategy;
@@ -105,6 +109,14 @@ public class NodeImpl implements NodeService, LeaderService {
         // Initialize cluster membership service
         this.membershipService = new ClusterMembershipService();
         
+        // Initialize failure detector (monitors worker heartbeats)
+        this.failureDetector = new FailureDetector(
+            this::onWorkerFailedPlaceholder,  // Callback (will be TaskScheduler later)
+            membershipService
+        );
+        failureDetector.start();
+        log.info("[OK] FailureDetector started for worker health monitoring");
+        
         // Register itself as first node
         membershipService.addNode(this);
         
@@ -159,7 +171,8 @@ public class NodeImpl implements NodeService, LeaderService {
         
         // Start monitoring Leader's health with periodic cache refresh
         leaderMonitor = new HeartbeatMonitor(
-            leaderNode, 
+            leaderNode,
+            this.nodeId,  // Pass our worker ID for heartbeat identification
             this::onLeaderDied, 
             this::updateClusterCache,  
             "Leader Monitor"
@@ -260,7 +273,13 @@ public class NodeImpl implements NodeService, LeaderService {
             if (leaderMonitor != null) {
                 leaderMonitor.stop();
             }
-            leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, this::updateClusterCache, "Leader Monitor");
+            leaderMonitor = new HeartbeatMonitor(
+                leaderNode,
+                this.nodeId,  // Pass our worker ID
+                this::onLeaderDied,
+                this::updateClusterCache,
+                "Leader Monitor"
+            );
             leaderMonitor.start();
             
             log.info("Successfully reconnected to new Leader");
@@ -315,6 +334,20 @@ public class NodeImpl implements NodeService, LeaderService {
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
+    }
+    
+    @Override
+    public void ping(String workerId) throws RemoteException {
+        if (!isLeader) {
+            throw new RemoteException("This node is not the leader");
+        }
+        
+        // Delegate to FailureDetector
+        if (failureDetector != null) {
+            failureDetector.ping(workerId);
+        } else {
+            log.warn("FailureDetector not initialized, ignoring ping from {}", workerId);
+        }
     }
     
     /**
@@ -382,6 +415,18 @@ public class NodeImpl implements NodeService, LeaderService {
     }
     
     /**
+     * Callback invoked when a worker is declared dead by FailureDetector.
+     * Placeholder until TaskScheduler is implemented.
+     * 
+     * @param workerId ID of the dead worker
+     */
+    private void onWorkerFailedPlaceholder(String workerId) {
+        log.warn("Worker {} declared dead by FailureDetector", workerId);
+        // TODO: Implement task reassignment when TaskScheduler is ready
+        // taskScheduler.onWorkerFailed(workerId);
+    }
+    
+    /**
      * Promotes this node to Leader after winning election.
      * Called by BullyElection when this node has the highest ID among surviving nodes.
      * 
@@ -401,6 +446,14 @@ public class NodeImpl implements NodeService, LeaderService {
             // Initialize cluster membership service
             this.membershipService = new ClusterMembershipService();
             membershipService.addNode(this);  // Add self
+            
+            // Initialize failure detector (monitors worker heartbeats)
+            this.failureDetector = new FailureDetector(
+                this::onWorkerFailedPlaceholder,
+                membershipService
+            );
+            failureDetector.start();
+            log.info("[OK] FailureDetector started after promotion to Leader");
             
             // Populate membership with cached nodes from cluster
             // This is critical - new Leader needs to know about other Workers!
@@ -444,6 +497,11 @@ public class NodeImpl implements NodeService, LeaderService {
         // Stop heartbeat monitoring if active
         if (leaderMonitor != null) {
             leaderMonitor.stop();
+        }
+        
+        // Stop failure detector if Leader
+        if (failureDetector != null) {
+            failureDetector.stop();
         }
         
         // Shutdown discovery strategy if active
