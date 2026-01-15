@@ -35,4 +35,14 @@ public interface LeaderService extends Remote {
      * @throws RemoteException if RMI communication fails or node is not Leader
      */
     List<NodeInfo> getClusterNodes() throws RemoteException;
+    
+    /**
+     * Heartbeat ping from worker to signal it's alive.
+     * Workers call this periodically to report their health status.
+     * Internally handled by FailureDetector on the Leader.
+     * 
+     * @param workerId unique ID of the worker sending the ping
+     * @throws RemoteException if RMI communication fails
+     */
+    void ping(String workerId) throws RemoteException;
 }
