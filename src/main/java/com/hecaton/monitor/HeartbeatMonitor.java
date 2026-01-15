@@ -22,6 +22,7 @@ public class HeartbeatMonitor {
     
     private final ScheduledExecutorService scheduler; // thread pool for scheduling heartbeats
     private final NodeService targetNode; // the leader to monitor
+    private final String myWorkerId; // ID of this worker node (for heartbeat identification)
     private final NodeFailureCallback callback; // function to call on node failure (the rielection)
     private final CacheRefreshCallback cacheRefreshCallback; // function to refresh cluster cache
     private final String monitorName; // descriptive name for logging, I'm not sure if needed
@@ -54,13 +55,15 @@ public class HeartbeatMonitor {
      * Creates a new HeartbeatMonitor for the specified target node.
      * 
      * @param targetNode The remote node to monitor
+     * @param myWorkerId Unique ID of this worker node (sent in heartbeat pings)
      * @param callback Callback to execute when node dies
      * @param cacheRefreshCallback Optional callback to refresh cluster cache (null = no refresh)
      * @param monitorName Descriptive name for logging (e.g., "Leader Monitor")
      */
-    public HeartbeatMonitor(NodeService targetNode, NodeFailureCallback callback, 
+    public HeartbeatMonitor(NodeService targetNode, String myWorkerId, NodeFailureCallback callback, 
                            CacheRefreshCallback cacheRefreshCallback, String monitorName) {
         this.targetNode = targetNode;
+        this.myWorkerId = myWorkerId;
         this.callback = callback;
         this.cacheRefreshCallback = cacheRefreshCallback;
         this.monitorName = monitorName;
@@ -125,33 +128,32 @@ public class HeartbeatMonitor {
     private void sendHeartbeat() {
         try {
             // RMI call with timeout (configured in JVM properties or default ~5s)
-            boolean alive = targetNode.ping();
-            
-            if (alive) {
-                // Reset counter on successful ping
-                if (missedHeartbeats > 0) { //if we had missed before
-                    log.info("[{}] Node {} recovered after {} missed heartbeat(s)", 
-                        monitorName, getNodeIdSafe(), missedHeartbeats);
-                }
-                missedHeartbeats = 0; // reset counter
-                heartbeatCount++; // increment total count
-                log.debug("[{}] Heartbeat OK from {} (count: {})", monitorName, getNodeIdSafe(), heartbeatCount);
-                
-                // Periodic cache refresh (every CACHE_REFRESH_INTERVAL heartbeats)
-                if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
-                    log.debug("[{}] Triggering cache refresh (heartbeat #{})", monitorName, heartbeatCount);
-                    try {
-                        cacheRefreshCallback.refreshCache();
-                    } catch (Exception e) {
-                        log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
-                    }
-                }
+            // Cast to LeaderService to access ping(workerId) method
+            if (targetNode instanceof com.hecaton.rmi.LeaderService) {
+                ((com.hecaton.rmi.LeaderService) targetNode).ping(myWorkerId);
             } else {
-                // Node responded but returned false (unusual case, literally impossible)
-                log.warn("[{}] Node {} returned false for ping()", monitorName, getNodeIdSafe());
-                handleMissedHeartbeat(); // probably this will never happen
+                // Fallback for non-Leader nodes (backward compatibility)
+                targetNode.ping();
             }
             
+            // Reset counter on successful ping
+            if (missedHeartbeats > 0) { //if we had missed before
+                log.info("[{}] Node {} recovered after {} missed heartbeat(s)", 
+                monitorName, getNodeIdSafe(), missedHeartbeats);
+            }
+            missedHeartbeats = 0; // reset counter
+            heartbeatCount++; // increment total count
+            log.debug("[{}] Heartbeat OK from {} (count: {})", monitorName, getNodeIdSafe(), heartbeatCount);
+                
+            // Periodic cache refresh (every CACHE_REFRESH_INTERVAL heartbeats)
+            if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
+                log.debug("[{}] Triggering cache refresh (heartbeat #{})", monitorName, heartbeatCount);
+                try {
+                    cacheRefreshCallback.refreshCache();
+                } catch (Exception e) {
+                    log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
+                }
+            }
         } catch (RemoteException e) {
             // Network error or node unreachable
             log.warn("[{}] Heartbeat failed for {}: {}", 

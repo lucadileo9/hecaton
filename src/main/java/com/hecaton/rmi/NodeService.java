@@ -2,8 +2,10 @@ package com.hecaton.rmi;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import java.util.List;
 
 import com.hecaton.node.NodeCapabilities;
+import com.hecaton.task.Task;
 
 /**
  * Remote interface exposed by each node.
@@ -75,4 +77,16 @@ public interface NodeService extends Remote {
      * 
      */
     NodeCapabilities getCapabilities() throws RemoteException;
+    
+    /**
+     * Receives a batch of tasks from the Leader and executes them.
+     * Internally handled by TaskExecutor (thread pool execution).
+     * 
+     * Workers execute tasks asynchronously and call leader.submitResult() for each completion.
+     * This method returns immediately after queuing tasks; actual execution happens in background.
+     * 
+     * @param tasks list of tasks to execute
+     * @throws RemoteException if RMI communication fails
+     */
+    void executeTasks(List<Task> tasks) throws RemoteException;
 }
