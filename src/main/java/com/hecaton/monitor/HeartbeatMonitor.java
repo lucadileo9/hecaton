@@ -136,32 +136,24 @@ public class HeartbeatMonitor {
                 targetNode.ping();
             }
             
-            // Successful ping
-            if (true) {
-                // Reset counter on successful ping
-                if (missedHeartbeats > 0) { //if we had missed before
-                    log.info("[{}] Node {} recovered after {} missed heartbeat(s)", 
-                        monitorName, getNodeIdSafe(), missedHeartbeats);
-                }
-                missedHeartbeats = 0; // reset counter
-                heartbeatCount++; // increment total count
-                log.debug("[{}] Heartbeat OK from {} (count: {})", monitorName, getNodeIdSafe(), heartbeatCount);
-                
-                // Periodic cache refresh (every CACHE_REFRESH_INTERVAL heartbeats)
-                if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
-                    log.debug("[{}] Triggering cache refresh (heartbeat #{})", monitorName, heartbeatCount);
-                    try {
-                        cacheRefreshCallback.refreshCache();
-                    } catch (Exception e) {
-                        log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
-                    }
-                }
-            } else {
-                // Node responded but returned false (unusual case, literally impossible)
-                log.warn("[{}] Node {} returned false for ping()", monitorName, getNodeIdSafe());
-                handleMissedHeartbeat(); // probably this will never happen
+            // Reset counter on successful ping
+            if (missedHeartbeats > 0) { //if we had missed before
+                log.info("[{}] Node {} recovered after {} missed heartbeat(s)", 
+                monitorName, getNodeIdSafe(), missedHeartbeats);
             }
-            
+            missedHeartbeats = 0; // reset counter
+            heartbeatCount++; // increment total count
+            log.debug("[{}] Heartbeat OK from {} (count: {})", monitorName, getNodeIdSafe(), heartbeatCount);
+                
+            // Periodic cache refresh (every CACHE_REFRESH_INTERVAL heartbeats)
+            if (cacheRefreshCallback != null && heartbeatCount % CACHE_REFRESH_INTERVAL == 0) {
+                log.debug("[{}] Triggering cache refresh (heartbeat #{})", monitorName, heartbeatCount);
+                try {
+                    cacheRefreshCallback.refreshCache();
+                } catch (Exception e) {
+                    log.warn("[{}] Cache refresh failed: {}", monitorName, e.getMessage());
+                }
+            }
         } catch (RemoteException e) {
             // Network error or node unreachable
             log.warn("[{}] Heartbeat failed for {}: {}", 
