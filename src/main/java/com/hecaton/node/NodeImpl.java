@@ -306,8 +306,23 @@ public class NodeImpl implements NodeService, LeaderService {
     
     @Override
     public void reportTaskCompletion(String taskId, Object result) throws RemoteException {
+        log.warn("DEPRECATED: reportTaskCompletion() called. Use submitResult(TaskResult) instead.");
         log.info("Task {} completed with result: {}", taskId, result);
-        // TODO
+        // TODO: Remove this method after migration to submitResult()
+    }
+    
+    @Override
+    public void submitResult(com.hecaton.task.TaskResult result) throws RemoteException {
+        if (!isLeader) {
+            throw new RemoteException("This node is not the leader");
+        }
+        
+        // TODO: Delegate to TaskScheduler when implemented
+        log.info("Task {} completed with status: {}", result.getTaskId(), result.getStatus());
+        log.warn("TaskScheduler not yet implemented - result logged but not processed");
+        
+        // Future implementation:
+        // taskScheduler.submitResult(result);
     }
     
     @Override
@@ -571,6 +586,24 @@ public class NodeImpl implements NodeService, LeaderService {
     @Override
     public NodeCapabilities getCapabilities() throws RemoteException {
         return this.capabilities;
+    }
+    
+    @Override
+    public void executeTasks(java.util.List<com.hecaton.task.Task> tasks) throws RemoteException {
+        if (tasks == null || tasks.isEmpty()) {
+            log.warn("Received empty task list, ignoring");
+            return;
+        }
+        
+        // TODO: Delegate to TaskExecutor when implemented
+        log.info("Received {} tasks from Leader", tasks.size());
+        log.warn("TaskExecutor not yet implemented - tasks logged but not executed");
+        
+        // Log task IDs for debugging
+        tasks.forEach(task -> log.debug("  Task: {}", task.getTaskId()));
+        
+        // Future implementation:
+        // taskExecutor.receiveTasks(tasks);
     }
 
     public ExecutionContext getExecutionContext() {
