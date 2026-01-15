@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
-    <property name="CONSOLE_LEVEL" value="${console.level:-INFO}"/>
+    <property name="CONSOLE_LEVEL" value="${console.level:-DEBUG}"/>
 
 <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
