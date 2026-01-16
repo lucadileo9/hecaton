@@ -13,6 +13,9 @@ import java.util.*;
  * <p>Distributes tasks cyclically among workers:
  * Task 0 → Worker 0, Task 1 → Worker 1, ..., Task N → Worker 0, ...</p>
  * 
+ * <p>This strategy ignores worker capabilities and simply distributes
+ * tasks evenly in a circular fashion.</p>
+ * 
  * Advantages:
  * - Simple and predictable
  * - Guaranteed uniform distribution
@@ -24,7 +27,7 @@ public class RoundRobinAssignment implements AssignmentStrategy {
     private static final Logger log = LoggerFactory.getLogger(RoundRobinAssignment.class);
     
     /**
-     *   RoundRobinAssignment.
+     * Creates a RoundRobinAssignment strategy.
      */
     public RoundRobinAssignment() {
         // No configuration needed

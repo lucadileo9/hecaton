@@ -9,7 +9,7 @@ import java.util.*;
 
 /**
  * This strategy assigns tasks to specific target workers when specified. 
- * So it is strictly tied to WeightedSplitting strategy.
+ * Works in conjunction with WeightedSplitting strategy.
  * 
  * Functioning:
  *   - If task has targetWorkerId → assign to that worker
