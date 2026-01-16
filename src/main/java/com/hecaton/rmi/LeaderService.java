@@ -39,7 +39,7 @@ public interface LeaderService extends Remote {
      * @param result the completed task result (SUCCESS, NOT_FOUND, FAILURE, or CANCELLED)
      * @throws RemoteException if RMI communication fails
      */
-    void submitResult(TaskResult result) throws RemoteException;
+    void submitResults(List<TaskResult> results) throws RemoteException;
     
     /**
      * Returns the list of all nodes in the cluster.
