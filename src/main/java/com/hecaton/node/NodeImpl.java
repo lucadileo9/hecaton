@@ -312,17 +312,21 @@ public class NodeImpl implements NodeService, LeaderService {
     }
     
     @Override
-    public void submitResult(com.hecaton.task.TaskResult result) throws RemoteException {
+    public void submitResults(List<com.hecaton.task.TaskResult> results) throws RemoteException {
         if (!isLeader) {
             throw new RemoteException("This node is not the leader");
         }
         
-        // TODO: Delegate to TaskScheduler when implemented
-        log.info("Task {} completed with status: {}", result.getTaskId(), result.getStatus());
-        log.warn("TaskScheduler not yet implemented - result logged but not processed");
+        if (results == null || results.isEmpty()) {
+            log.warn("[PLACEHOLDER] Received empty results list");
+            return;
+        }
+        
+        log.info("[PLACEHOLDER] Received {} task results", results.size());
+        log.warn("TaskScheduler not yet implemented - results logged but not processed");
         
         // Future implementation:
-        // taskScheduler.submitResult(result);
+        // taskScheduler.submitResults(results);
     }
     
     @Override
