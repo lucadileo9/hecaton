@@ -1,5 +1,6 @@
 package com.hecaton.task.assignment;
 
+import com.hecaton.node.NodeCapabilities;
 import com.hecaton.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,7 +9,7 @@ import java.util.*;
 
 /**
  * This strategy assigns tasks to specific target workers when specified. 
- * So it is strictly tied to WeightedSplitting strategy.
+ * Works in conjunction with WeightedSplitting strategy.
  * 
  * Functioning:
  *   - If task has targetWorkerId → assign to that worker
@@ -39,39 +40,37 @@ public class TargetedAssignment implements AssignmentStrategy {
     }
     
     @Override
-    public Map<String, List<Task>> assign(List<Task> tasks, List<WorkerInfo> workers) {
+    public Map<String, List<Task>> assign(
+            List<Task> tasks, 
+            Map<String, NodeCapabilities> workerCapabilities) {
+        
         if (tasks == null || tasks.isEmpty()) {
             throw new IllegalArgumentException("Tasks list cannot be null or empty");
         }
-        if (workers == null || workers.isEmpty()) {
-            throw new IllegalArgumentException("Workers list cannot be null or empty");
+        if (workerCapabilities == null || workerCapabilities.isEmpty()) {
+            throw new IllegalArgumentException("Worker capabilities cannot be null or empty");
         }
         
-        // Mappa workerId → workerInfo per lookup veloce
-        Map<String, WorkerInfo> workerMap = new HashMap<>();
-        for (WorkerInfo worker : workers) {
-            workerMap.put(worker.getWorkerId(), worker);
-        }
+        // Get available worker IDs
+        Set<String> availableWorkers = workerCapabilities.keySet();
         
         Map<String, List<Task>> assignments = new LinkedHashMap<>();
         List<Task> unassigned = new ArrayList<>();
         
-        // Inizializza liste
-        for (WorkerInfo worker : workers) {
-            assignments.put(worker.getWorkerId(), new ArrayList<>());
+        // Initialize empty lists for each worker
+        for (String workerId : availableWorkers) {
+            assignments.put(workerId, new ArrayList<>());
         }
         
-        // Prima passata: assegna task con target valido
+        // First pass: assign tasks with valid targets
         int targeted = 0;
         int fallbackCount = 0;
         
         for (Task task : tasks) {
-            String target = task.getTargetWorkerId(); // this is a method of Task, 
-            // default null, but for WeightedSplitting it is set
+            String target = task.getTargetWorkerId(); // null by default,
+            // set by WeightedSplitting strategy
             
-            if (target != null && // I have a target
-                 workerMap.containsKey(target) // and it exists in my workers
-                 ) {
+            if (target != null && availableWorkers.contains(target)) {
                 // Assign to target
                 assignments.get(target).add(task);
                 targeted++;
@@ -88,12 +87,13 @@ public class TargetedAssignment implements AssignmentStrategy {
             }
         }
         
-        // Now we have unassigned tasks to distribute with fallback strategy
+        // Distribute unassigned tasks with fallback strategy
         if (!unassigned.isEmpty()) {
             log.debug("Using fallback for {} tasks without valid target", unassigned.size());
-            Map<String, List<Task>> fallbackAssignments = fallback.assign(unassigned, workers);
+            Map<String, List<Task>> fallbackAssignments = 
+                fallback.assign(unassigned, workerCapabilities);
             
-            // Merge
+            // Merge fallback assignments
             for (Map.Entry<String, List<Task>> entry : fallbackAssignments.entrySet()) {
                 assignments.get(entry.getKey()).addAll(entry.getValue());
             }
@@ -108,6 +108,7 @@ public class TargetedAssignment implements AssignmentStrategy {
         
         return assignments;
     }
+    
     
     @Override
     public String getName() {
