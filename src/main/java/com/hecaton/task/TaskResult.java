@@ -24,9 +24,11 @@ public final class TaskResult implements Serializable {
         SUCCESS,
         NOT_FOUND,
         FAILURE,
-        CANCELLED
+        CANCELLED,
+        WORKING  // Task dispatched, execution in progress
     }
     
+    private final String jobId;
     private final String taskId;
     private final Status status;
     private final Object data;
@@ -36,8 +38,9 @@ public final class TaskResult implements Serializable {
     /**
      * Private constructor - use factory methods.
      */
-    private TaskResult(String taskId, Status status, Object data, 
+    private TaskResult(String jobId, String taskId, Status status, Object data, 
                       String errorMessage, long executionTimeMs) {
+        this.jobId = jobId;
         this.taskId = taskId;
         this.status = status;
         this.data = data;
@@ -48,59 +51,75 @@ public final class TaskResult implements Serializable {
     // ==================== Factory Methods ====================
     
     /**
+     * Creates a "working" result (task dispatched, in progress).
+     * 
+     * @param jobId ID of the job
+     * @param taskId ID of the task
+     * @return TaskResult with status WORKING
+     */
+    public static TaskResult working(String jobId, String taskId) {
+        return new TaskResult(jobId, taskId, Status.WORKING, null, null, 0);
+    }
+    
+    /**
      * Creates a success result with data.
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @param data result found (e.g., cracked password)
      * @return TaskResult with status SUCCESS
      */
-    public static TaskResult success(String taskId, Object data) {
-        return new TaskResult(taskId, Status.SUCCESS, data, null, 0);
+    public static TaskResult success(String jobId, String taskId, Object data) {
+        return new TaskResult(jobId, taskId, Status.SUCCESS, data, null, 0);
     }
     
     /**
      * Creates a success result with data and execution time.
      * It could be useful for performance metrics, but I don't think I'll use it.
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @param data result found
      * @param executionTimeMs execution time in milliseconds
      * @return TaskResult with status SUCCESS
      */
-    public static TaskResult success(String taskId, Object data, long executionTimeMs) {
-        return new TaskResult(taskId, Status.SUCCESS, data, null, executionTimeMs);
+    public static TaskResult success(String jobId, String taskId, Object data, long executionTimeMs) {
+        return new TaskResult(jobId, taskId, Status.SUCCESS, data, null, executionTimeMs);
     }
     
     /**
      * Creates a "not found" result (task completed, no match).
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @return TaskResult with status NOT_FOUND
      */
-    public static TaskResult notFound(String taskId) {
-        return new TaskResult(taskId, Status.NOT_FOUND, null, null, 0);
+    public static TaskResult notFound(String jobId, String taskId) {
+        return new TaskResult(jobId, taskId, Status.NOT_FOUND, null, null, 0);
     }
     
     /**
      * Creates a "not found" result with execution time.
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @param executionTimeMs execution time in milliseconds
      * @return TaskResult with status NOT_FOUND
      */
-    public static TaskResult notFound(String taskId, long executionTimeMs) {
-        return new TaskResult(taskId, Status.NOT_FOUND, null, null, executionTimeMs);
+    public static TaskResult notFound(String jobId, String taskId, long executionTimeMs) {
+        return new TaskResult(jobId, taskId, Status.NOT_FOUND, null, null, executionTimeMs);
     }
     
     /**
      * Creates a failure result.
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @param errorMessage error message
      * @return TaskResult with status FAILURE
      */
-    public static TaskResult failure(String taskId, String errorMessage) {
-        return new TaskResult(taskId, Status.FAILURE, null, errorMessage, 0);
+    public static TaskResult failure(String jobId, String taskId, String errorMessage) {
+        return new TaskResult(jobId, taskId, Status.FAILURE, null, errorMessage, 0);
     }
     
     /**
@@ -108,14 +127,19 @@ public final class TaskResult implements Serializable {
      * A result task like this will be created when the leader decides to cancel ongoing tasks because
      * a result has already been found by another worker.
      * 
+     * @param jobId ID of the job
      * @param taskId ID of the task
      * @return TaskResult with status CANCELLED
      */
-    public static TaskResult cancelled(String taskId) {
-        return new TaskResult(taskId, Status.CANCELLED, null, "Task cancelled", 0);
+    public static TaskResult cancelled(String jobId, String taskId) {
+        return new TaskResult(jobId, taskId, Status.CANCELLED, null, "Task cancelled", 0);
     }
     
     // ==================== Getters ====================
+    
+    public String getJobId() {
+        return jobId;
+    }
     
     public String getTaskId() {
         return taskId;
@@ -168,24 +192,33 @@ public final class TaskResult implements Serializable {
         return status == Status.CANCELLED;
     }
     
+    /**
+     * @return true if the task is currently being executed
+     */
+    public boolean isWorking() {
+        return status == Status.WORKING;
+    }
+    
     // ==================== Utility ====================
     
     @Override
     public String toString() {
         switch (status) {
             case SUCCESS:
-                return String.format("TaskResult[%s: SUCCESS, data=%s, time=%dms]", 
-                    taskId, data, executionTimeMs);
+                return String.format("TaskResult[job=%s, task=%s: SUCCESS, data=%s, time=%dms]", 
+                    jobId, taskId, data, executionTimeMs);
             case NOT_FOUND:
-                return String.format("TaskResult[%s: NOT_FOUND, time=%dms]", 
-                    taskId, executionTimeMs);
+                return String.format("TaskResult[job=%s, task=%s: NOT_FOUND, time=%dms]", 
+                    jobId, taskId, executionTimeMs);
             case FAILURE:
-                return String.format("TaskResult[%s: FAILURE, error=%s]", 
-                    taskId, errorMessage);
+                return String.format("TaskResult[job=%s, task=%s: FAILURE, error=%s]", 
+                    jobId, taskId, errorMessage);
             case CANCELLED:
-                return String.format("TaskResult[%s: CANCELLED]", taskId);
+                return String.format("TaskResult[job=%s, task=%s: CANCELLED]", jobId, taskId);
+            case WORKING:
+                return String.format("TaskResult[job=%s, task=%s: WORKING]", jobId, taskId);
             default:
-                return String.format("TaskResult[%s: %s]", taskId, status);
+                return String.format("TaskResult[job=%s, task=%s: %s]", jobId, taskId, status);
         }
     }
 }
