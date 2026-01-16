@@ -75,23 +75,16 @@ public class TestStrategies {
         
         System.out.println("=== Test Assignment Strategies ===\n");
         
-        // Create worker infos
-        List<AssignmentStrategy.WorkerInfo> workerInfos = Arrays.asList(
-            new AssignmentStrategy.WorkerInfo("worker-1", null, 5),   // 5 task attive
-            new AssignmentStrategy.WorkerInfo("worker-2", null, 2),   // 2 task attive
-            new AssignmentStrategy.WorkerInfo("worker-3", null, 0)    // 0 task attive
-        );
-        
         // Test RoundRobinAssignment
         /*
         Here we are using RoundRobinAssignment with the dynamically created tasks (150 tasks).
         The RoundRobin strategy distributes tasks evenly across all available workers in a cyclic manner.
         Given 150 tasks and 3 workers, we expect each worker to receive an equal number of tasks, resulting in 50 tasks per worker.
-        This approach ensures a balanced workload distribution, preventing any single worker from being overloaded while others remain
+        This approach ensures a balanced workload distribution, preventing any single worker from being overloaded while others remain idle.
         */
         System.out.println("--- RoundRobinAssignment ---");
         AssignmentStrategy roundRobin = new RoundRobinAssignment();
-        Map<String, List<Task>> rrResult = roundRobin.assign(dynamicTasks, workerInfos);
+        Map<String, List<Task>> rrResult = roundRobin.assign(dynamicTasks, workers);
         printAssignmentResult(rrResult);
         System.out.println("Expected: 50-50-50 (equal distribution)\n");
         
@@ -100,14 +93,14 @@ public class TestStrategies {
         // // Use smaller task set for clarity
         // List<Task> smallTaskSet = dynamicTasks.subList(0, 15);
         // AssignmentStrategy loadAware = new LoadAwareAssignment();
-        // Map<String, List<Task>> laResult = loadAware.assign(smallTaskSet, workerInfos);
+        // Map<String, List<Task>> laResult = loadAware.assign(smallTaskSet, workers);
         // printAssignmentResult(laResult);
         // System.out.println("Expected: W3 gets more (started with 0 active)\n");
         
         // Test TargetedAssignment
         System.out.println("--- TargetedAssignment ---");
         AssignmentStrategy targeted = new TargetedAssignment();
-        Map<String, List<Task>> tResult = targeted.assign(weightedTasks, workerInfos);
+        Map<String, List<Task>> tResult = targeted.assign(weightedTasks, workers);
         printAssignmentResult(tResult);
         System.out.println("Expected: matches WeightedSplitting targets\n");
         
