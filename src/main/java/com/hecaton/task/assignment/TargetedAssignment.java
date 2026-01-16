@@ -108,7 +108,7 @@ public class TargetedAssignment implements AssignmentStrategy {
         
         return assignments;
     }
-    }
+    
     
     @Override
     public String getName() {
