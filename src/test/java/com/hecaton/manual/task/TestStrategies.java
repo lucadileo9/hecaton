@@ -184,7 +184,7 @@ public class TestStrategies {
         
         @Override
         public TaskResult execute() {
-            return TaskResult.success(taskId, "mock-result");
+            return TaskResult.success(jobId, taskId, "mock-result");
         }
     }
 }

@@ -33,10 +33,10 @@ public class TestNodeCapabilities {
         
         System.out.println("\n=== Test TaskResult ===\n");
         // Test TaskResult
-        TaskResult success = com.hecaton.task.TaskResult.success("task-1", "password123", 1500);
-        TaskResult notFound = com.hecaton.task.TaskResult.notFound("task-2", 2000);
-        TaskResult failure = com.hecaton.task.TaskResult.failure("task-3", "Connection timeout");
-        TaskResult cancelled = com.hecaton.task.TaskResult.cancelled("task-4");
+        TaskResult success = com.hecaton.task.TaskResult.success("job-123", "task-1", "password123", 1500);
+        TaskResult notFound = com.hecaton.task.TaskResult.notFound("job-123", "task-2", 2000);
+        TaskResult failure = com.hecaton.task.TaskResult.failure("job-123", "task-3", "Connection timeout");
+        TaskResult cancelled = com.hecaton.task.TaskResult.cancelled("job-123", "task-4");
         
         System.out.println(success);
         System.out.println("  hasResult: " + success.hasResult());
