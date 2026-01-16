@@ -16,7 +16,6 @@ import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -44,7 +43,7 @@ public class JobManager {
     private final SplittingStrategy splittingStrategy;
     private final AssignmentStrategy assignmentStrategy;
     private final ClusterMembershipService membershipService;
-    // private final TaskScheduler taskScheduler;  // TODO: Uncomment when TaskScheduler is implemented
+    private final TaskScheduler taskScheduler;
     
     // Track pending jobs (jobId → completion latch)
     private final Map<String, CountDownLatch> pendingJobs = new ConcurrentHashMap<>();
@@ -58,14 +57,16 @@ public class JobManager {
      * @param splittingStrategy strategy to divide jobs into tasks
      * @param assignmentStrategy strategy to assign tasks to workers
      * @param membershipService cluster membership service (to get worker list)
+     * @param taskScheduler scheduler to manage task execution and completion
      */
     public JobManager(SplittingStrategy splittingStrategy,
                      AssignmentStrategy assignmentStrategy,
-                     ClusterMembershipService membershipService) {
+                     ClusterMembershipService membershipService,
+                     TaskScheduler taskScheduler) {
         this.splittingStrategy = splittingStrategy;
         this.assignmentStrategy = assignmentStrategy;
         this.membershipService = membershipService;
-        // this.taskScheduler = taskScheduler;  // TODO: Uncomment when TaskScheduler is implemented
+        this.taskScheduler = taskScheduler;
         
         log.info("JobManager initialized with strategies: splitting={}, assignment={}",
                  splittingStrategy.getName(), assignmentStrategy.getName());
@@ -144,19 +145,10 @@ public class JobManager {
             CountDownLatch completionLatch = new CountDownLatch(1);
             pendingJobs.put(jobId, completionLatch);
             
-            // 6. Schedule tasks for execution (via TaskScheduler)
-            // TODO: Uncomment when TaskScheduler is implemented
-            // taskScheduler.initialSchedule(jobId, assignments);
-            
-            // PLACEHOLDER: Simulate scheduling
-            log.warn("TaskScheduler not yet implemented - job {} tasks NOT executed", jobId);
-            log.warn("When TaskScheduler is ready, it will:");
-            log.warn("  1. Send {} tasks to {} workers via RMI", tasks.size(), assignments.size());
-            log.warn("  2. Track task completion status");
-            log.warn("  3. Call onJobFinished() when all tasks complete");
-            
-            // For now, simulate empty results
-            simulatePlaceholderCompletion(jobId, tasks.size());
+            // 6. Schedule tasks for execution via TaskScheduler
+            log.info("Scheduling {} tasks for job {} across {} workers via TaskScheduler", 
+                     tasks.size(), jobId, assignments.size());
+            taskScheduler.scheduleTasks(jobId, assignments);
             
             // 7. Wait for completion
             log.info("Waiting for job {} completion (timeout: {}ms)...", jobId, timeoutMs);
@@ -265,36 +257,6 @@ public class JobManager {
         pendingJobs.remove(jobId);
         jobResults.remove(jobId);
         log.debug("Job {} resources cleaned up", jobId);
-    }
-    
-    /**
-     * PLACEHOLDER: Simulates job completion until TaskScheduler is implemented.
-     * This method will be REMOVED when TaskScheduler is ready.
-     * 
-     * @param jobId job to simulate
-     * @param taskCount number of tasks
-     */
-    private void simulatePlaceholderCompletion(String jobId, int taskCount) {
-        log.warn("PLACEHOLDER: Simulating completion for job {} with {} NOT_FOUND results", 
-                 jobId, taskCount);
-        
-        // Simulate async completion after 1 second
-        CompletableFuture.runAsync(() -> {
-            try {
-                Thread.sleep(1000);
-                
-                // Create fake NOT_FOUND results
-                List<TaskResult> fakeResults = new java.util.ArrayList<>();
-                for (int i = 0; i < taskCount; i++) {
-                    fakeResults.add(TaskResult.notFound(jobId, jobId + "-task-" + i));
-                }
-                
-                onJobFinished(jobId, fakeResults);
-                
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
     }
     
     /**
