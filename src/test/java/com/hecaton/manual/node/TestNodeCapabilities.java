@@ -6,6 +6,7 @@ import com.hecaton.task.TaskResult;
 
 import com.hecaton.node.ExecutionContext;
 
+@Deprecated
 public class TestNodeCapabilities {
     
     public static void main(String[] args) {
@@ -62,14 +63,14 @@ public class TestNodeCapabilities {
             NodeImpl leader = new NodeImpl("localhost", 5000);
             leader.startAsLeader();
             System.out.println("Leader started with capabilities: " + leader.getCapabilities());
-            System.out.println("Leader Execution Context: " + leader.getExecutionContext());
+            // System.out.println("Leader Execution Context: " + leader.getExecutionContext());
 
             NodeImpl worker = new NodeImpl("localhost", 5001);
             // N.B.: to connect to leader, we should put this in another terminal, but in this test we just start the node
             // because we don't need a real connection for capability testing
 
             System.out.println("Worker joined with capabilities: " + worker.getCapabilities());
-            System.out.println("Worker Execution Context: " + worker.getExecutionContext());
+            // System.out.println("Worker Execution Context: " + worker.getExecutionContext());
 
         } catch (Exception e) {
             System.err.println("Failed to start leader node: " + e.getMessage());
