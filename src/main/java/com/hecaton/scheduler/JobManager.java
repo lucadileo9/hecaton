@@ -112,8 +112,8 @@ public class JobManager {
         log.info("Submitting job {} (type: {})", jobId, job.getJobType());
         
         try {
-            // 2. Get worker capabilities
-            Map<String, NodeCapabilities> workerCapabilities = getWorkerCapabilities();
+            // 2. Get worker capabilities (null = use all active nodes)
+            Map<String, NodeCapabilities> workerCapabilities = getWorkerCapabilities(null);
             
             if (workerCapabilities.isEmpty()) {
                 throw new IllegalStateException("No workers available in the cluster");
@@ -223,15 +223,19 @@ public class JobManager {
     }
     
     /**
-     * Retrieves worker capabilities from all active nodes in the cluster.
-     * Called before job splitting and assignment.
+     * Retrieves worker capabilities from specified nodes or all active cluster nodes.
+     * Called before job splitting, assignment, and task reassignment.
      * 
+     * @param workers specific workers to query, or null to use all active cluster nodes
      * @return map of workerId → capabilities
      */
-    private Map<String, NodeCapabilities> getWorkerCapabilities() {
+    private Map<String, NodeCapabilities> getWorkerCapabilities(List<NodeService> workers) {
         Map<String, NodeCapabilities> capabilities = new HashMap<>();
         
-        for (NodeService worker : membershipService.getActiveNodes()) {
+        // Use provided workers or fetch all from membershipService
+        List<NodeService> targetWorkers = (workers != null) ? workers : membershipService.getActiveNodes();
+        
+        for (NodeService worker : targetWorkers) {
             try {
                 String workerId = worker.getId();
                 NodeCapabilities caps = worker.getCapabilities();
