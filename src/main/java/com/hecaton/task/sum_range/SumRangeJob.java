@@ -1,6 +1,6 @@
 package com.hecaton.task.sum_range;
 
-import com.hecaton.task.Job;
+import com.hecaton.task.AbstractJob;
 import com.hecaton.task.JobResult;
 import com.hecaton.task.Task;
 import com.hecaton.task.TaskResult;
@@ -21,19 +21,8 @@ import java.util.List;
  * 
  * Used for testing the entire distributed execution pipeline.
  */
-public class SumRangeJob implements Job {
+public class SumRangeJob extends AbstractJob {
     private final int maxNumber;
-    private String jobId;
-
-    @Override
-    public String getJobId() {
-        return jobId;
-    }
-
-    @Override
-    public void setJobId(String jobId) {
-        this.jobId = jobId;
-    }
 
     /**
      * Creates a job to sum numbers from 1 to maxNumber.
@@ -55,7 +44,6 @@ public class SumRangeJob implements Job {
             
             tasks.add(new SumRangeTask(
                 getJobId(),
-                "task-" + i,
                 start,
                 end
             ));

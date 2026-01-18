@@ -1,6 +1,6 @@
 package com.hecaton.task.sum_range;
 
-import com.hecaton.task.Task;
+import com.hecaton.task.AbstractTask;
 import com.hecaton.task.TaskResult;
 
 /**
@@ -11,27 +11,11 @@ import com.hecaton.task.TaskResult;
  * 
  * Serializable to support transmission via RMI.
  */
-public class SumRangeTask implements Task  { 
+public class SumRangeTask extends AbstractTask { 
     private static final long serialVersionUID = 1L;
     
     private final int start;
     private final int end;
-
-    private String taskId;
-    private String jobId;
-
-    @Override
-    public String getTaskId() {
-        return "task-" + taskId;
-    }
-
-    @Override
-    public String getJobId() {
-        return jobId;
-    }
-
-
-    
     /**
      * Creates a task to sum numbers in a range.
      * 
@@ -40,11 +24,10 @@ public class SumRangeTask implements Task  {
      * @param start start of range (inclusive)
      * @param end end of range (inclusive)
      */
-    public SumRangeTask(String jobId, String taskId, int start, int end) {
+    public SumRangeTask(String jobId, int start, int end) {
+        super(jobId);  // Call AbstractTask constructor
         this.start = start;
         this.end = end;
-        this.jobId = jobId;
-        this.taskId = taskId;
     }
     
     @Override
