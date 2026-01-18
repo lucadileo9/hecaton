@@ -8,6 +8,7 @@ import com.hecaton.task.assignment.RoundRobinAssignment;
 import com.hecaton.task.splitting.SplittingStrategy;
 import com.hecaton.task.splitting.UniformSplitting;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -17,7 +18,7 @@ import java.util.function.Supplier;
  * Contains all strategic choices for both election and task execution.
  * 
  * Uses Builder pattern for clean, validated construction.
- * Immutable after creation - thread-safe.
+ * Immutable after creation - thread-safe and serializable.
  * 
  * Example usage:
  * ClusterConfig config = new ClusterConfig.Builder()
@@ -28,7 +29,8 @@ import java.util.function.Supplier;
  * 
  * NodeImpl node = new NodeImpl("localhost", 5001, config);
  */
-public class ClusterConfig {
+public class ClusterConfig implements Serializable {
+    private static final long serialVersionUID = 1L;
     
     /**
      * Available election algorithms.

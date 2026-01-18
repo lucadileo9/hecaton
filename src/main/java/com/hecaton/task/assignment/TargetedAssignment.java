@@ -4,6 +4,7 @@ import com.hecaton.node.NodeCapabilities;
 import com.hecaton.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.io.Serializable;
 
 import java.util.*;
 
@@ -16,7 +17,8 @@ import java.util.*;
  *   - If targetWorkerId does not exist → fallback to round-robin
  *   - If task has no target → fallback to round-robin
  */
-public class TargetedAssignment implements AssignmentStrategy {
+public class TargetedAssignment implements AssignmentStrategy, Serializable {
+    private static final long serialVersionUID = 1L;
     
     private static final Logger log = LoggerFactory.getLogger(TargetedAssignment.class);
     
