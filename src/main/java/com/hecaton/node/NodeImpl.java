@@ -10,6 +10,8 @@ import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
 import com.hecaton.scheduler.JobManager;
+import com.hecaton.task.Task;
+import com.hecaton.task.TaskResult;
 import com.hecaton.task.assignment.AssignmentStrategy;
 import com.hecaton.task.splitting.SplittingStrategy;
 import org.slf4j.Logger;
@@ -675,15 +677,51 @@ public class NodeImpl implements NodeService, LeaderService {
             return;
         }
         
-        // TODO: Delegate to TaskExecutor when implemented
-        log.info("Received {} tasks from Leader", tasks.size());
-        log.warn("TaskExecutor not yet implemented - tasks logged but not executed");
+        log.info("Received {} tasks from Leader - executing...", tasks.size());
         
-        // Log task IDs for debugging
-        tasks.forEach(task -> log.debug("  Task: {}", task.getTaskId()));
+        // Execute tasks and collect results
+        List<TaskResult> results = new ArrayList<>();
         
-        // Future implementation:
-        // taskExecutor.receiveTasks(tasks);
+        for (Task task : tasks) {
+            try {
+                // Execute task
+                log.debug("Executing task: {}", task.getTaskId());;
+                
+                // Create success result
+                results.add(task.execute());
+                
+                log.info("Task {} completed successfully", task.getTaskId());
+                
+            } catch (Exception e) {
+                log.error("Task {} failed: {}", task.getTaskId(), e.getMessage());
+                
+                // Create failure result
+                results.add(TaskResult.failure(
+                    task.getJobId(),
+                    task.getTaskId(),
+                    e.toString()
+                ));
+            }
+        }
+        
+        // Send results back to Leader
+        if (!results.isEmpty()) {
+            try {
+                if (isLeader) {
+                    // Leader submits to itself directly (no RMI)
+                    log.debug("Leader submitting {} results to itself (local call)", results.size());
+                    submitResults(results);
+                } else {
+                    // Worker submits via RMI to Leader
+                    LeaderService leader = (LeaderService) leaderNode;
+                    leader.submitResults(results);
+                    log.info("Submitted {} results to Leader", results.size());
+                }
+                
+            } catch (RemoteException e) {
+                log.error("Failed to submit results to Leader: {}", e.getMessage());
+            }
+        }
     }
 
     public ExecutionContext getExecutionContext() {
