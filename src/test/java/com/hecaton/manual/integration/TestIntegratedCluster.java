@@ -26,8 +26,8 @@ import com.hecaton.task.sum_range.SumRangeJob;
  *     mvn exec:java '-Dexec.mainClass=com.hecaton.manual.integration.TestIntegratedCluster'
  *   
  *   Terminal 2-3 (Workers):
- *     mvn exec:java '-Dexec.mainClass=com.hecaton.manual.integration.TestWorkerWithConfig' '-Dexec.args=5002'
- *     mvn exec:java '-Dexec.mainClass=com.hecaton.manual.integration.TestWorkerWithConfig' '-Dexec.args=5003'
+ *     mvn exec:java '-Dexec.mainClass=com.hecaton.manual.integration.TestWorkerWithoutConfig' '-Dexec.args=5002'
+ *     mvn exec:java '-Dexec.mainClass=com.hecaton.manual.integration.TestWorkerWithoutConfig' '-Dexec.args=5003'
  */
 public class TestIntegratedCluster {
     
