@@ -11,6 +11,9 @@ import com.hecaton.monitor.FailureDetector;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
+import com.hecaton.scheduler.JobManager;
+import com.hecaton.task.assignment.AssignmentStrategy;
+import com.hecaton.task.splitting.SplittingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +46,10 @@ public class NodeImpl implements NodeService, LeaderService {
     
     // Failure detector (only for Leader, monitors worker heartbeats)
     private FailureDetector failureDetector;
+    
+    // Task execution management (only for Leader)
+    // JobManager is the facade - NodeImpl only interacts with it
+    private JobManager jobManager;
     
     // Leader discovery strategy
     private LeaderDiscoveryStrategy discoveryStrategy;
@@ -101,17 +108,24 @@ public class NodeImpl implements NodeService, LeaderService {
     /**
      * Starts this node as the cluster Leader.
      * Uses the existing RMI Registry and additionally binds itself as "leader".
+     * 
+     * @param splittingStrategy strategy to divide jobs into tasks
+     * @param assignmentStrategy strategy to assign tasks to workers
      * @throws RemoteException if binding fails
      */
-    public void startAsLeader() throws RemoteException {
+    public void startAsLeader(SplittingStrategy splittingStrategy, 
+                             AssignmentStrategy assignmentStrategy) throws RemoteException {
         this.isLeader = true;
         
         // Initialize cluster membership service
         this.membershipService = new ClusterMembershipService();
         
+        // Initialize JobManager with injected strategies
+        setJobManager(splittingStrategy, assignmentStrategy);
+        
         // Initialize failure detector (monitors worker heartbeats)
         this.failureDetector = new FailureDetector(
-            this::onWorkerFailedPlaceholder,  // Callback (will be TaskScheduler later)
+            this::onWorkerFailed,  // Now delegates to TaskScheduler
             membershipService
         );
         failureDetector.start();
@@ -318,15 +332,17 @@ public class NodeImpl implements NodeService, LeaderService {
         }
         
         if (results == null || results.isEmpty()) {
-            log.warn("[PLACEHOLDER] Received empty results list");
+            log.warn("Received empty results list");
             return;
         }
         
-        log.info("[PLACEHOLDER] Received {} task results", results.size());
-        log.warn("TaskScheduler not yet implemented - results logged but not processed");
+        if (jobManager == null) {
+            log.error("JobManager not initialized - cannot process {} results", results.size());
+            throw new RemoteException("Leader not fully initialized");
+        }
         
-        // Future implementation:
-        // taskScheduler.submitResults(results);
+        log.debug("Delegating {} task results to JobManager", results.size());
+        jobManager.submitResults(results);
     }
     
     @Override
@@ -435,23 +451,68 @@ public class NodeImpl implements NodeService, LeaderService {
     
     /**
      * Callback invoked when a worker is declared dead by FailureDetector.
-     * Placeholder until TaskScheduler is implemented.
+     * Delegates to JobManager (facade) for task reassignment.
      * 
      * @param workerId ID of the dead worker
      */
-    private void onWorkerFailedPlaceholder(String workerId) {
+    private void onWorkerFailed(String workerId) {
         log.warn("Worker {} declared dead by FailureDetector", workerId);
-        // TODO: Implement task reassignment when TaskScheduler is ready
-        // taskScheduler.onWorkerFailed(workerId);
+        
+        if (jobManager != null) {
+            jobManager.onWorkerFailed(workerId);
+        } else {
+            log.error("JobManager not initialized - cannot reassign tasks from dead worker {}", workerId);
+        }
+    }
+    
+    /**
+     * Initializes JobManager with strategies.
+     * Called during Leader startup.
+     * 
+     * For now deferred - will be configured via setStrategies() method.
+     */
+    private void setJobManager(SplittingStrategy splittingStrategy,
+                                      AssignmentStrategy assignmentStrategy) {
+        if (!isLeader) {
+            throw new IllegalStateException("Only Leader nodes can have JobManager");
+        }
+        
+        // JobManager creates TaskScheduler internally - clean, no circular dependency
+        this.jobManager = new JobManager(
+            splittingStrategy,
+            assignmentStrategy,
+            membershipService
+        );
+        
+        log.info("Task execution strategies configured successfully");
+    }
+    
+    /**
+     * Returns the JobManager instance (only available on Leader after setStrategies()).
+     * 
+     * @return JobManager instance
+     * @throws IllegalStateException if not a Leader or strategies not configured
+     */
+    public JobManager getJobManager() {
+        if (!isLeader) {
+            throw new IllegalStateException("Only Leader nodes have JobManager");
+        }
+        if (jobManager == null) {
+            throw new IllegalStateException("Strategies not configured - call setStrategies() first");
+        }
+        return jobManager;
     }
     
     /**
      * Promotes this node to Leader after winning election.
      * Called by BullyElection when this node has the highest ID among surviving nodes.
      * 
+     * @param splittingStrategy strategy to divide jobs into tasks
+     * @param assignmentStrategy strategy to assign tasks to workers
      * @throws RemoteException if RMI operations fail
      */
-    public void promoteToLeader() throws RemoteException {
+    public void promoteToLeader(SplittingStrategy splittingStrategy,
+                               AssignmentStrategy assignmentStrategy) throws RemoteException {
         log.info("Promoting to Leader...");
         
         synchronized (this) {
@@ -466,9 +527,12 @@ public class NodeImpl implements NodeService, LeaderService {
             this.membershipService = new ClusterMembershipService();
             membershipService.addNode(this);  // Add self
             
+            // Initialize JobManager with injected strategies
+            setJobManager(splittingStrategy, assignmentStrategy);
+            
             // Initialize failure detector (monitors worker heartbeats)
             this.failureDetector = new FailureDetector(
-                this::onWorkerFailedPlaceholder,
+                this::onWorkerFailed,
                 membershipService
             );
             failureDetector.start();
