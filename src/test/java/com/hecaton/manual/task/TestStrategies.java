@@ -141,8 +141,8 @@ public class TestStrategies {
         }
         
         @Override
-        public void setJobId(String jobId) {
-            this.jobId = jobId;
+        public void setJobId() {
+            this.jobId = "job-" + System.currentTimeMillis();
         }
         
         @Override
