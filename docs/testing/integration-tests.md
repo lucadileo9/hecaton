@@ -1,6 +1,6 @@
 # Testing: Integration Tests with ClusterConfig
 
-This guide covers the first part of **end-to-end integration testing** with the new `ClusterConfig` architecture, including task distribution and not the execution.
+This guide covers the first part of **end-to-end integration testing** with the new `ClusterConfig` architecture, including task distribution and execution.
 
 ---
 
@@ -12,7 +12,7 @@ This guide covers the first part of **end-to-end integration testing** with the 
 - ✅ Workers joining cluster with consistent config
 - ✅ Job submission and splitting (UniformSplitting)
 - ✅ Task assignment (RoundRobinAssignment)
-- ❌ Task execution on Workers
+- ✅ Task execution on Workers
 - ✅ Result aggregation on Leader
 - ✅ Leader executing tasks locally (no RMI to itself)
 
@@ -36,7 +36,7 @@ All tests are in `src/test/java/com/hecaton/manual/integration/`
 
 ### Complete Workflow (3 Terminals)
 
-This test verifies the **entire distributed job execution pipeline** from submission to result aggregation,    without actual task execution on Workers, or better said, with Workers executing tasks locally WITHOUT taskExecutor component (which is to be implemented later).
+This test verifies the **entire distributed job execution pipeline** from submission to result aggregation,    without actual task execution on Workers, or better said, with Workers executing tasks locally using the taskExecutor component.
 
 #### Terminal 1: Leader with Job Submission
 
