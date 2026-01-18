@@ -7,11 +7,11 @@ import java.io.Serializable;
  * It includes identity information (worker ID, host, port, leadership status)
  * and the hardware capabilities of the node.
  * 
- * It is used by the TaskExecutor to parallelize work according to the node's resources.
- * 
- * Created by {@code NodeImpl.createExecutionContext()} at the time
- * of task execution.
+ * @deprecated This class duplicates NodeCapabilities and adds minimal value.
+ *             Tasks can access NodeCapabilities directly if needed.
+ *             Will be removed in a future version.
  */
+@Deprecated
 public final class ExecutionContext implements Serializable {
     
     private static final long serialVersionUID = 1L;
