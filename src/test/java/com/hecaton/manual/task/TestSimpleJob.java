@@ -119,7 +119,6 @@ public class TestSimpleJob {
         public MinimalJobManager() {
             super(new DummySplittingStrategy(), 
                   new DummyAssignmentStrategy(), 
-                  null,  // No ClusterMembershipService
                   null); // No TaskScheduler
         }
         
