@@ -68,6 +68,20 @@ public class NodeImpl implements NodeService, LeaderService {
     public final NodeCapabilities capabilities;
     
     /**
+     * Creates a new node instance with default cluster configuration.
+     * Uses default strategies: BULLY election, UniformSplitting, RoundRobinAssignment.
+     * 
+     * Convenience constructor for simple use cases and testing.
+     * 
+     * @param host Host address (e.g. "localhost" or "192.168.1.10")
+     * @param port RMI registry port
+     * @throws RemoteException if RMI export fails
+     */
+    public NodeImpl(String host, int port) throws RemoteException {
+        this(host, port, new ClusterConfig.Builder().build());
+    }
+    
+    /**
      * Creates a new node instance.
      * Each node creates its own RMI Registry on the specified port.
      * 
