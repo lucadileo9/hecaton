@@ -55,7 +55,7 @@ public class NodeImpl implements NodeService, LeaderService {
     // Heartbeat monitor (only for Workers monitoring Leader)
     private HeartbeatMonitor leaderMonitor;
     // Reference to Leader (for Workers)
-    private NodeService leaderNode;
+    private NodeService leaderNode; // THIS SMELLS, BECAUSE MAYBE WE CAN USE LeaderService DIRECTLY
     
     private ElectionStrategy electionStrategy;
     private List<NodeInfo> clusterNodesCache;  // Cache for Worker nodes to run election
