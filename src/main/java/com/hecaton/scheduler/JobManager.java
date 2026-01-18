@@ -108,10 +108,10 @@ public class JobManager {
         long startTime = System.currentTimeMillis();
         
         // 1. Generate unique job ID
-        String jobId = "job-" + System.currentTimeMillis();
-        job.setJobId(jobId);
-        log.info("Submitting job {} (type: {})", jobId, job.getJobType());
-        
+        // N.B: the jobId is set internally here before any further processing
+        log.info("Submitting job of type {} for execution", job.getJobId());
+        String jobId = job.getJobId();
+
         try {
             // 2. Get worker capabilities (null = use all active nodes)
             Map<String, NodeCapabilities> workerCapabilities = getWorkerCapabilities(null);
