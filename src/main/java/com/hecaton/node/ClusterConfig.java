@@ -119,6 +119,15 @@ public class ClusterConfig implements Serializable {
         return assignmentStrategy;
     }
     
+    @Override
+    public String toString() {
+        return "ClusterConfig{" +
+                "electionAlgorithm=" + electionAlgorithm +
+                ", splittingStrategy=" + splittingStrategy.getName() +
+                ", assignmentStrategy=" + assignmentStrategy.getName() +
+                '}';
+    }
+    
     /**
      * Builder for creating ClusterConfig instances.
      * Provides fluent API with validation and sensible defaults.
