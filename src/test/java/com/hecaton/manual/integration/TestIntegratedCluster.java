@@ -77,6 +77,7 @@ public class TestIntegratedCluster {
         System.out.println("Job ID:   " + result.getJobId());
         System.out.println("Status:   " + (result.isSuccess() ? "[OK] SUCCESS" : " [ERROR] FAILED"));
 
+        System.out.println("Result:   " + result.getData());
         System.out.println("Expected: 5050");
         // System.out.println("Match:    " + (result.getResult().equals(5050L) ? "[OK] YES" : " [ERROR] NO"));
         System.out.println();
