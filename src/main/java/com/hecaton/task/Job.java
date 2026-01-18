@@ -32,7 +32,7 @@ public interface Job extends Serializable {
      * 
      * @param jobId unique assigned ID of the job
      */
-    void setJobId(String jobId);
+    void setJobId();
     
     /**
      * Divides this job into a specified number of tasks.
