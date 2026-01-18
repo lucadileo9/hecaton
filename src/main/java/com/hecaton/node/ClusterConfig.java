@@ -4,7 +4,9 @@ import com.hecaton.discovery.NodeInfo;
 import com.hecaton.election.ElectionStrategy;
 import com.hecaton.election.bully.BullyElection;
 import com.hecaton.task.assignment.AssignmentStrategy;
+import com.hecaton.task.assignment.RoundRobinAssignment;
 import com.hecaton.task.splitting.SplittingStrategy;
+import com.hecaton.task.splitting.UniformSplitting;
 
 import java.util.List;
 import java.util.Objects;
@@ -117,12 +119,12 @@ public class ClusterConfig {
     
     /**
      * Builder for creating ClusterConfig instances.
-     * Provides fluent API with validation.
+     * Provides fluent API with validation and sensible defaults.
      */
     public static class Builder {
-        private Algorithm electionAlgorithm = Algorithm.BULLY; // Default
-        private SplittingStrategy splittingStrategy;
-        private AssignmentStrategy assignmentStrategy;
+        private Algorithm electionAlgorithm = Algorithm.BULLY;  // Default
+        private SplittingStrategy splittingStrategy = new UniformSplitting();  // Default
+        private AssignmentStrategy assignmentStrategy = new RoundRobinAssignment();  // Default
         
         /**
          * Sets the election algorithm.
@@ -135,7 +137,7 @@ public class ClusterConfig {
         
         /**
          * Sets the splitting strategy for dividing jobs into tasks.
-         * Required.
+         * Default: UniformSplitting
          */
         public Builder splittingStrategy(SplittingStrategy strategy) {
             this.splittingStrategy = Objects.requireNonNull(strategy, "splittingStrategy cannot be null");
@@ -144,7 +146,7 @@ public class ClusterConfig {
         
         /**
          * Sets the assignment strategy for distributing tasks to workers.
-         * Required.
+         * Default: RoundRobinAssignment
          */
         public Builder assignmentStrategy(AssignmentStrategy strategy) {
             this.assignmentStrategy = Objects.requireNonNull(strategy, "assignmentStrategy cannot be null");
@@ -153,14 +155,12 @@ public class ClusterConfig {
         
         /**
          * Builds the ClusterConfig instance.
-         * Validates that all required fields are set.
+         * All fields have sensible defaults if not explicitly set.
          * 
          * @return Immutable ClusterConfig instance
-         * @throws NullPointerException if required fields are missing
          */
         public ClusterConfig build() {
-            Objects.requireNonNull(splittingStrategy, "splittingStrategy is required");
-            Objects.requireNonNull(assignmentStrategy, "assignmentStrategy is required");
+            // Validation already done in setters via requireNonNull
             return new ClusterConfig(this);
         }
     }
