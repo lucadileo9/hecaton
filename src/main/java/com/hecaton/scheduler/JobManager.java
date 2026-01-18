@@ -53,20 +53,21 @@ public class JobManager {
     
     /**
      * Creates a new JobManager.
+     * TaskScheduler is created internally as an implementation detail.
      * 
      * @param splittingStrategy strategy to divide jobs into tasks
      * @param assignmentStrategy strategy to assign tasks to workers
      * @param membershipService cluster membership service (to get worker list)
-     * @param taskScheduler scheduler to manage task execution and completion
      */
     public JobManager(SplittingStrategy splittingStrategy,
                      AssignmentStrategy assignmentStrategy,
-                     ClusterMembershipService membershipService,
-                     TaskScheduler taskScheduler) {
+                     ClusterMembershipService membershipService) {
         this.splittingStrategy = splittingStrategy;
         this.assignmentStrategy = assignmentStrategy;
         this.membershipService = membershipService;
-        this.taskScheduler = taskScheduler;
+        
+        // Create TaskScheduler internally (implementation detail)
+        this.taskScheduler = new TaskScheduler(this);
         
         log.info("JobManager initialized with strategies: splitting={}, assignment={}",
                  splittingStrategy.getName(), assignmentStrategy.getName());
@@ -319,4 +320,40 @@ public class JobManager {
         
         return newAssignments;
     }
+    
+    // ==================== Facade Methods (delegated to TaskScheduler) ====================
+    
+    /**
+     * Submits task results from workers.
+     * Facade method that delegates to TaskScheduler.
+     * 
+     * This is the single point of entry for result submission,
+     * allowing pre/post-processing, logging, and metrics collection.
+     * 
+     * @param results list of task results from worker execution
+     */
+    public void submitResults(List<TaskResult> results) {
+        if (results == null || results.isEmpty()) {
+            log.warn("Received empty results list");
+            return;
+        }
+        
+        log.debug("Facade: Delegating {} results to TaskScheduler", results.size());
+        taskScheduler.submitResults(results);
+    }
+    
+    /**
+     * Handles worker failure by reassigning orphaned tasks.
+     * Facade method that delegates to TaskScheduler.
+     * 
+     * This is the single point of entry for worker failure handling,
+     * allowing centralized failure management and monitoring.
+     * 
+     * @param workerId ID of the failed worker
+     */
+    public void onWorkerFailed(String workerId) {
+        log.warn("Facade: Worker {} failed, delegating to TaskScheduler", workerId);
+        taskScheduler.onWorkerFailed(workerId);
+    }
+
 }
