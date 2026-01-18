@@ -1,6 +1,5 @@
 package com.hecaton.manual.monitor;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 
 /**

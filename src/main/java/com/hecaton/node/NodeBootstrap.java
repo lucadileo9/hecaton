@@ -1,6 +1,5 @@
 package com.hecaton.node;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
