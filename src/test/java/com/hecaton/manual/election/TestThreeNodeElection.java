@@ -1,6 +1,5 @@
 package com.hecaton.manual.election;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,7 +84,7 @@ public class TestThreeNodeElection {
             }
             
             // Create election strategy and node
-            NodeImpl node = new NodeImpl("localhost", port, Algorithm.BULLY);
+            NodeImpl node = new NodeImpl("localhost", port);
             
             if ("leader".equals(mode)) {
                 logger.info("Starting node as LEADER on port {}", port);

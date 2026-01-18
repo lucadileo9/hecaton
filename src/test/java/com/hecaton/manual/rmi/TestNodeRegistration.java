@@ -1,6 +1,5 @@
 package com.hecaton.manual.rmi;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 import com.hecaton.rmi.LeaderService;
 
@@ -44,7 +43,7 @@ public class TestNodeRegistration {
             // Step 1: Create temporary Worker node
             System.out.println("1. Creating temporary Worker node on port 6000...");
             // Create temporary worker with election strategy
-            NodeImpl tempWorker = new NodeImpl("localhost", 6000, Algorithm.BULLY);
+            NodeImpl tempWorker = new NodeImpl("localhost", 6000);
             System.out.println("   [OK] Worker node created");
             System.out.println("   [OK] Worker ID: " + tempWorker.getId());
             System.out.println();

@@ -60,7 +60,7 @@ public class TestLeaderHeartbeat {
         System.out.println();
         
         // Create Worker node on port 5002
-        NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
+        NodeImpl worker = new NodeImpl("localhost", 5002);
         worker.joinCluster("localhost", 5001);
         
         System.out.println("[OK] Worker joined cluster and monitoring Leader");

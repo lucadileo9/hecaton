@@ -6,6 +6,7 @@ import com.hecaton.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.*;
 
 /**
@@ -25,7 +26,8 @@ import java.util.*;
  *   - CPU-intensive jobs where balancing is critical
  * 
  */
-public class WeightedSplitting implements SplittingStrategy {
+public class WeightedSplitting implements SplittingStrategy, Serializable {
+    private static final long serialVersionUID = 1L;
     
     private static final Logger log = LoggerFactory.getLogger(WeightedSplitting.class);
     

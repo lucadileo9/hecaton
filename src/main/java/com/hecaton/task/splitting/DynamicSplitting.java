@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.io.Serializable;
 
 /**
  * Strategy that creates a number of small tasks based on the number of available workers.
@@ -25,8 +26,10 @@ import java.util.Map;
  *   - When simplicity is desired (no weighted assignment)
  * 
  */
-public class DynamicSplitting implements SplittingStrategy {
+public class DynamicSplitting implements SplittingStrategy, Serializable {
+    private static final long serialVersionUID = 1L;
     
+
     private static final Logger log = LoggerFactory.getLogger(DynamicSplitting.class);
     
     /** Default value for tasksPerWorker */

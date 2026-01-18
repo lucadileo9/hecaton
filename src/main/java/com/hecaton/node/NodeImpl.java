@@ -5,8 +5,7 @@ import com.hecaton.discovery.LeaderDiscoveryStrategy;
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.election.ElectionStrategy;
-import com.hecaton.election.ElectionStrategyFactory;
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
+import com.hecaton.node.ClusterConfig.Algorithm;
 import com.hecaton.monitor.FailureDetector;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
@@ -61,19 +60,37 @@ public class NodeImpl implements NodeService, LeaderService {
     
     private ElectionStrategy electionStrategy;
     private List<NodeInfo> clusterNodesCache;  // Cache for Worker nodes to run election
+    
+    // Cluster configuration (strategies for election and task execution)
+    private final ClusterConfig config;
 
     // Node capabilities (static for now)
     public final NodeCapabilities capabilities;
     
     /**
-     * Creates a new node instance.
-     * Each node creates its own RMI Registry on the specified port.
+     * Creates a new node instance with default cluster configuration.
+     * Uses default strategies: BULLY election, UniformSplitting, RoundRobinAssignment.
+     * 
+     * Convenience constructor for simple use cases and testing.
+     * 
      * @param host Host address (e.g. "localhost" or "192.168.1.10")
      * @param port RMI registry port
-     * @param algorithm Election algorithm to use (BULLY, RAFT, RING)
      * @throws RemoteException if RMI export fails
      */
-    public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException {
+    public NodeImpl(String host, int port) throws RemoteException {
+        this(host, port, new ClusterConfig.Builder().build());
+    }
+    
+    /**
+     * Creates a new node instance.
+     * Each node creates its own RMI Registry on the specified port.
+     * 
+     * @param host Host address (e.g. "localhost" or "192.168.1.10")
+     * @param port RMI registry port
+     * @param config Cluster configuration (election algorithm + task strategies)
+     * @throws RemoteException if RMI export fails
+     */
+    public NodeImpl(String host, int port, ClusterConfig config) throws RemoteException {
         // This prevents "Connection refused" errors when RMI auto-detects wrong IP on multi-NIC systems
         if (System.getProperty("java.rmi.server.hostname") == null) {
             System.setProperty("java.rmi.server.hostname", "localhost");
@@ -83,11 +100,11 @@ public class NodeImpl implements NodeService, LeaderService {
         this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
         this.port = port;
         this.isLeader = false;
+        this.config = Objects.requireNonNull(config, "config cannot be null");
         
-        // Create election strategy via factory
+        // Create election strategy from config
         this.clusterNodesCache = new ArrayList<>();
-        this.electionStrategy = ElectionStrategyFactory.create(
-            algorithm,                      // Algorithm choice
+        this.electionStrategy = config.createElectionStrategy(
             this,                           // Self reference (now fully initialized!)
             nodeIdValue,                    // Election ID
             () -> this.clusterNodesCache    // Supplier for lazy cache access
@@ -108,20 +125,18 @@ public class NodeImpl implements NodeService, LeaderService {
     /**
      * Starts this node as the cluster Leader.
      * Uses the existing RMI Registry and additionally binds itself as "leader".
+     * Strategies are taken from the ClusterConfig provided at construction.
      * 
-     * @param splittingStrategy strategy to divide jobs into tasks
-     * @param assignmentStrategy strategy to assign tasks to workers
      * @throws RemoteException if binding fails
      */
-    public void startAsLeader(SplittingStrategy splittingStrategy, 
-                             AssignmentStrategy assignmentStrategy) throws RemoteException {
+    public void startAsLeader() throws RemoteException {
         this.isLeader = true;
         
         // Initialize cluster membership service
         this.membershipService = new ClusterMembershipService();
         
-        // Initialize JobManager with injected strategies
-        setJobManager(splittingStrategy, assignmentStrategy);
+        // Initialize JobManager with strategies from config
+        setJobManager(config.getSplittingStrategy(), config.getAssignmentStrategy());
         
         // Initialize failure detector (monitors worker heartbeats)
         this.failureDetector = new FailureDetector(
@@ -506,13 +521,11 @@ public class NodeImpl implements NodeService, LeaderService {
     /**
      * Promotes this node to Leader after winning election.
      * Called by BullyElection when this node has the highest ID among surviving nodes.
+     * Strategies are taken from the ClusterConfig provided at construction.
      * 
-     * @param splittingStrategy strategy to divide jobs into tasks
-     * @param assignmentStrategy strategy to assign tasks to workers
      * @throws RemoteException if RMI operations fail
      */
-    public void promoteToLeader(SplittingStrategy splittingStrategy,
-                               AssignmentStrategy assignmentStrategy) throws RemoteException {
+    public void promoteToLeader() throws RemoteException {
         log.info("Promoting to Leader...");
         
         synchronized (this) {
@@ -527,8 +540,8 @@ public class NodeImpl implements NodeService, LeaderService {
             this.membershipService = new ClusterMembershipService();
             membershipService.addNode(this);  // Add self
             
-            // Initialize JobManager with injected strategies
-            setJobManager(splittingStrategy, assignmentStrategy);
+            // Initialize JobManager with strategies from config
+            setJobManager(config.getSplittingStrategy(), config.getAssignmentStrategy());
             
             // Initialize failure detector (monitors worker heartbeats)
             this.failureDetector = new FailureDetector(

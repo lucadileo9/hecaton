@@ -48,7 +48,7 @@ public class NodeBootstrap {
             }
             
             // Create election strategy and node
-            NodeImpl node = new NodeImpl("localhost", port, Algorithm.BULLY);
+            NodeImpl node = new NodeImpl("localhost", port);
             
             // Start as Leader or join as Worker
             if (isLeader) {

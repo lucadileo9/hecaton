@@ -4,7 +4,6 @@ import com.hecaton.node.NodeCapabilities;
 import com.hecaton.node.NodeImpl;
 import com.hecaton.task.TaskResult;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.ExecutionContext;
 
 public class TestNodeCapabilities {
@@ -60,12 +59,12 @@ public class TestNodeCapabilities {
         // Test node initialization with capabilities
         System.out.println("\n=== Test Node Initialization with Capabilities ===\n");
         try {
-            NodeImpl leader = new NodeImpl("localhost", 5000, Algorithm.BULLY);
+            NodeImpl leader = new NodeImpl("localhost", 5000);
             leader.startAsLeader();
             System.out.println("Leader started with capabilities: " + leader.getCapabilities());
             System.out.println("Leader Execution Context: " + leader.getExecutionContext());
 
-            NodeImpl worker = new NodeImpl("localhost", 5001, Algorithm.BULLY);
+            NodeImpl worker = new NodeImpl("localhost", 5001);
             // N.B.: to connect to leader, we should put this in another terminal, but in this test we just start the node
             // because we don't need a real connection for capability testing
 

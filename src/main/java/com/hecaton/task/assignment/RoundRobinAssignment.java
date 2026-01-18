@@ -5,6 +5,7 @@ import com.hecaton.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.*;
 
 /**
@@ -22,7 +23,8 @@ import java.util.*;
  * - No computational overhead
  * 
  */
-public class RoundRobinAssignment implements AssignmentStrategy {
+public class RoundRobinAssignment implements AssignmentStrategy, Serializable {
+    private static final long serialVersionUID = 1L;
     
     private static final Logger log = LoggerFactory.getLogger(RoundRobinAssignment.class);
     

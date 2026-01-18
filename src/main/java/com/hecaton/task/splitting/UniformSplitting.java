@@ -6,6 +6,7 @@ import com.hecaton.task.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +34,8 @@ import java.util.Map;
  *   - Short jobs
  *   - Testing and debugging
  */
-public class UniformSplitting implements SplittingStrategy {
+public class UniformSplitting implements SplittingStrategy, Serializable {
+    private static final long serialVersionUID = 1L;
     
     private static final Logger log = LoggerFactory.getLogger(UniformSplitting.class);
     
