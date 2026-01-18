@@ -68,6 +68,9 @@ public class NodeImpl implements NodeService, LeaderService {
     // Node capabilities (static for now)
     public final NodeCapabilities capabilities;
     
+    // Task executor (thread pool for parallel task execution)
+    private TaskExecutor taskExecutor;
+    
     /**
      * Creates a new node instance with default cluster configuration.
      * Uses default strategies: BULLY election, UniformSplitting, RoundRobinAssignment.
@@ -112,6 +115,14 @@ public class NodeImpl implements NodeService, LeaderService {
         );
         
         this.capabilities = NodeCapabilities.detect(); // Detect static capabilities
+        
+        // Initialize TaskExecutor (will be configured after we know if we're Leader or Worker)
+        // For now, pass null for leader - will be set in startAsLeader() or joinCluster()
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            null,          // Leader reference set later
+            false          // isLeader flag updated later
+        );
 
         // Export this object for RMI (makes it remotely callable)
         UnicastRemoteObject.exportObject(this, 0);
@@ -146,6 +157,13 @@ public class NodeImpl implements NodeService, LeaderService {
         );
         failureDetector.start();
         log.info("[OK] FailureDetector started for worker health monitoring");
+        
+        // Update TaskExecutor for Leader mode (can submit results directly)
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            this,          // Leader reference (self)
+            true           // isLeader = true
+        );
         
         // Register itself as first node
         membershipService.addNode(this);
@@ -198,6 +216,13 @@ public class NodeImpl implements NodeService, LeaderService {
         }
         
         log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
+        
+        // Update TaskExecutor for Worker mode (submits results via RMI to Leader)
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            leader,        // Leader reference for RMI result submission
+            false          // isLeader = false
+        );
         
         // Start monitoring Leader's health with periodic cache refresh
         leaderMonitor = new HeartbeatMonitor(
@@ -672,60 +697,7 @@ public class NodeImpl implements NodeService, LeaderService {
     
     @Override
     public void executeTasks(java.util.List<com.hecaton.task.Task> tasks) throws RemoteException {
-        if (tasks == null || tasks.isEmpty()) {
-            log.warn("Received empty task list, ignoring");
-            return;
-        }
-        
-        log.info("Received {} tasks from Leader - executing...", tasks.size());
-        
-        // Execute tasks and collect results
-        List<TaskResult> results = new ArrayList<>();
-        
-        for (Task task : tasks) {
-            try {
-                // Execute task
-                log.debug("Executing task: {}", task.getTaskId());;
-                
-                // Create success result
-                results.add(task.execute());
-                
-                log.info("Task {} completed successfully", task.getTaskId());
-                
-            } catch (Exception e) {
-                log.error("Task {} failed: {}", task.getTaskId(), e.getMessage());
-                
-                // Create failure result
-                results.add(TaskResult.failure(
-                    task.getJobId(),
-                    task.getTaskId(),
-                    e.toString()
-                ));
-            }
-        }
-        
-        // Send results back to Leader
-        if (!results.isEmpty()) {
-            try {
-                if (isLeader) {
-                    // Leader submits to itself directly (no RMI)
-                    log.debug("Leader submitting {} results to itself (local call)", results.size());
-                    submitResults(results);
-                } else {
-                    // Worker submits via RMI to Leader
-                    LeaderService leader = (LeaderService) leaderNode;
-                    leader.submitResults(results);
-                    log.info("Submitted {} results to Leader", results.size());
-                }
-                
-            } catch (RemoteException e) {
-                log.error("Failed to submit results to Leader: {}", e.getMessage());
-            }
-        }
-    }
-
-    public ExecutionContext getExecutionContext() {
-        return new ExecutionContext(nodeId, port, isLeader, capabilities);
-
+        // Delegate to TaskExecutor (uses thread pool for parallel execution)
+        taskExecutor.receiveTasks(tasks);
     }
 }
