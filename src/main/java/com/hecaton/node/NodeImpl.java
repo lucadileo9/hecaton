@@ -5,7 +5,6 @@ import com.hecaton.discovery.LeaderDiscoveryStrategy;
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.election.ElectionStrategy;
-import com.hecaton.node.ClusterConfig.Algorithm;
 import com.hecaton.monitor.FailureDetector;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
