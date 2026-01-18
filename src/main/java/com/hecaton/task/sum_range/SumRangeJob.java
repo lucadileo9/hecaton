@@ -1,4 +1,4 @@
-package com.hecaton.task.examples;
+package com.hecaton.task.sum_range;
 
 import com.hecaton.task.Job;
 import com.hecaton.task.JobResult;

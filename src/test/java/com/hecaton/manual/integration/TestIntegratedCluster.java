@@ -5,7 +5,7 @@ import com.hecaton.node.NodeImpl;
 import com.hecaton.scheduler.JobManager;
 import com.hecaton.task.Job;
 import com.hecaton.task.JobResult;
-import com.hecaton.task.examples.SumRangeJob;
+import com.hecaton.task.sum_range.SumRangeJob;
 
 /**
  * FULL INTEGRATION TEST - Leader submits real Job
