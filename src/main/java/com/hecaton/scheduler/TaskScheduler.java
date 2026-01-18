@@ -381,15 +381,47 @@ public class TaskScheduler {
                        orphanedTasks.size(), jobId, workerId);
             totalOrphaned += orphanedTasks.size();
             
-            // TODO: Implement automatic reassignment
-            // 1. Get healthy workers from ClusterMembershipService
-            // 2. Use AssignmentStrategy to reassign orphanedTasks
-            // 3. Update assignments (move tasks to new worker)
-            // 4. Call dispatchTasksToWorker() with new assignments
-            // 5. Update workerIndex
+            // Reassign orphaned tasks using JobManager's strategy
+            logger.info("Requesting task reassignment from JobManager for {} orphaned tasks", 
+                       orphanedTasks.size());
             
-            logger.error("REASSIGNMENT NOT YET IMPLEMENTED - {} tasks orphaned in job={}", 
-                        orphanedTasks.size(), jobId);
+            Map<String, List<Task>> newAssignments = jobManager.reassignTasks(orphanedTasks);
+            
+            if (newAssignments.isEmpty()) {
+                logger.error("JobManager returned empty assignments - no healthy workers available!");
+                continue;
+            }
+            
+            // Update assignments in Cassaforte (remove from old worker, add to new workers)
+            ctx.assignments.remove(workerId);
+            for (Map.Entry<String, List<Task>> entry : newAssignments.entrySet()) {
+                String newWorkerId = entry.getKey();
+                List<Task> tasks = entry.getValue();
+                
+                // Add to new worker's assignment list (or merge if already has some)
+                ctx.assignments.merge(newWorkerId, tasks, (existing, newTasks) -> {
+                    existing.addAll(newTasks);
+                    return existing;
+                });
+                
+                logger.info("Reassigned {} tasks to worker={}", tasks.size(), newWorkerId);
+            }
+            
+            // Dispatch tasks to new workers
+            for (Map.Entry<String, List<Task>> entry : newAssignments.entrySet()) {
+                String newWorkerId = entry.getKey();
+                List<Task> tasks = entry.getValue();
+                dispatchTasksToWorker(newWorkerId, tasks);
+            }
+            
+            // Update workerIndex (remove old worker, add new workers)
+            Set<String> jobIds = workerIndex.remove(workerId);
+            for (String newWorkerId : newAssignments.keySet()) {
+                workerIndex.computeIfAbsent(newWorkerId, k -> ConcurrentHashMap.newKeySet()).add(jobId);
+            }
+            
+            logger.info("Successfully reassigned {} orphaned tasks in job={}", 
+                       orphanedTasks.size(), jobId);
         }
         
         if (totalOrphaned > 0) {

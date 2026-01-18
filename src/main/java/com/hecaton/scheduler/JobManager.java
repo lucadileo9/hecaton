@@ -281,4 +281,42 @@ public class JobManager {
     public boolean isJobPending(String jobId) {
         return pendingJobs.containsKey(jobId);
     }
+    
+    /**
+     * Reassigns orphaned tasks to healthy workers.
+     * Called by TaskScheduler when a worker fails.
+     * 
+     * Uses the same AssignmentStrategy used for initial job distribution,
+     * ensuring consistent task assignment logic throughout the job lifecycle.
+     * 
+     * @param orphanedTasks list of tasks that need reassignment
+     * @return map of workerId → tasks to execute
+     */
+    public Map<String, List<Task>> reassignTasks(List<Task> orphanedTasks) {
+        if (orphanedTasks == null || orphanedTasks.isEmpty()) {
+            log.warn("No tasks to reassign");
+            return new HashMap<>();
+        }
+        
+        log.info("Reassigning {} orphaned tasks using {}", 
+                 orphanedTasks.size(), assignmentStrategy.getClass().getSimpleName());
+        
+        // Get current healthy workers
+        List<NodeService> healthyWorkers = membershipService.getActiveNodes();
+        if (healthyWorkers.isEmpty()) {
+            log.error("No healthy workers available for task reassignment!");
+            return new HashMap<>();
+        }
+        
+        // Convert workers to capabilities map (reuses existing logic)
+        Map<String, NodeCapabilities> capabilities = getWorkerCapabilities(healthyWorkers);
+        
+        // Use the SAME strategy as initial assignment
+        Map<String, List<Task>> newAssignments = assignmentStrategy.assign(orphanedTasks, capabilities);
+        
+        log.info("Reassigned {} tasks to {} workers", 
+                 orphanedTasks.size(), newAssignments.size());
+        
+        return newAssignments;
+    }
 }
