@@ -192,10 +192,12 @@ public class TaskExecutor {
                     }
                     
                     // Check for early termination
+                    // Only SUCCESS status triggers early termination (terminal result found)
+                    // PARTIAL results do NOT trigger early termination (they are contributions)
                     if (!earlyTerminationTriggered  // the early termination has not been already triggered
-                        && result.hasResult()       // and this result has a valid data (so we found what we were looking for)
+                        && result.getStatus() == TaskResult.Status.SUCCESS  // and this is a TERMINAL result, not PARTIAL
                     ) {
-                        log.info("[EARLY TERMINATION] Task {} found result, triggering local cancellation", 
+                        log.info("[EARLY TERMINATION] Task {} found terminal result, triggering local cancellation", 
                                 result.getTaskId());
                         
                         // Cancel all remaining tasks for this job
