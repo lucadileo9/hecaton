@@ -363,17 +363,13 @@ public class TaskScheduler {
     
     /**
      * Checks if a job supports early termination.
-     * 
-     * TODO: Currently returns true by default. Should query the actual Job object.
-     * Requires storing Job reference in JobContext or querying JobManager.
+     * Delegates to JobManager which maintains Job references.
      * 
      * @param jobId job identifier
      * @return true if job supports early termination
      */
     private boolean supportsEarlyTermination(String jobId) {
-        // TODO: Query actual Job.supportsEarlyTermination()
-        // For now, assume all jobs support it (default behavior from Job interface)
-        return true;
+        return jobManager.supportsEarlyTermination(jobId);
     }
     
     /**
