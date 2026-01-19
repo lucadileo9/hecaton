@@ -56,12 +56,26 @@ public class SumRangeJob extends AbstractJob {
     @Override
     public JobResult aggregateResults(List<TaskResult> results) {
         long sum = 0;
+        int successCount = 0;
+        
         for (TaskResult result : results) {
-            if (result.getStatus() != TaskResult.Status.SUCCESS) {
-                return JobResult.failure(this.getJobId(), "Something didn't work", 0);
+            // Accept PARTIAL results (expected for sum aggregation)
+            if (result.getStatus() == TaskResult.Status.PARTIAL) {
+                sum += (Long) result.getData();
+                successCount++;
+            } else if (result.getStatus() == TaskResult.Status.CANCELLED) {
+                // Cancelled tasks are ok (shouldn't happen for non-early-termination jobs, but handle gracefully)
+                continue;
+            } else if (result.getStatus() == TaskResult.Status.FAILURE) {
+                return JobResult.failure(this.getJobId(), "Task failed: " + result.getErrorMessage(), 0);
             }
-            sum += (Long) result.getData();
         }
-        return JobResult.success(getJobId(), sum, 0, results.size(), results.size(), 0);
+        
+        return JobResult.success(getJobId(), sum, 0, results.size(), successCount, 0);
+    }
+
+    @Override
+    public boolean supportsEarlyTermination() {
+        return false; // summing all numbers requires all tasks to complete
     }
 }
