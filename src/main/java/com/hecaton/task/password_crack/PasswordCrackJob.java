@@ -53,6 +53,7 @@ public class PasswordCrackJob extends AbstractJob {
      */
     public PasswordCrackJob(String targetHash, String charset, int passwordLength) {
         super();
+        setJobId();
         
         // Validate input
         if (targetHash == null || !targetHash.matches("[0-9a-fA-F]{32}")) {
