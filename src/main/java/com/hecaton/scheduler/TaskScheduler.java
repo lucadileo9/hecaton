@@ -47,6 +47,7 @@ public class TaskScheduler {
      *   - Cassaforte (assignments): Immutable "backup" for worker failure recovery
      *   - Lavagna (taskStatus): Mutable current state, updated constantly
      *   - Contatore (pendingTasks): Atomic counter for O(1) completion check
+     *   - Terminated flag: Tracks early termination state
      */
     private static class JobContext {
         // LA "CASSAFORTE" (Read-Only after creation)
@@ -68,6 +69,11 @@ public class TaskScheduler {
         // When it reaches 0, the job is finished.
         // Avoids having to count how many "COMPLETED" there are on the board each time.
         final AtomicInteger pendingTasks;
+        
+        // EARLY TERMINATION FLAG
+        // Set to true when a task result is found and job supports early termination.
+        // Prevents double-triggering of termination logic and blocks task reassignment.
+        volatile boolean terminated = false;
         
         JobContext(Map<String, List<Task>> assignments, int totalTaskCount) {
             this.assignments = new HashMap<>(assignments);  // Defensive copy
