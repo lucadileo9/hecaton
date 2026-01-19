@@ -30,6 +30,7 @@ public class SumRangeJob extends AbstractJob {
      * @param maxNumber upper bound of the range (inclusive)
      */
     public SumRangeJob(int maxNumber) {
+        this.setJobId();
         this.maxNumber = maxNumber;
     }
     
