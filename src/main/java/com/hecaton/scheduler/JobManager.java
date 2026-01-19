@@ -51,6 +51,9 @@ public class JobManager {
     // Store results for completed jobs (jobId → results)
     private final Map<String, List<TaskResult>> jobResults = new ConcurrentHashMap<>();
     
+    // Track active jobs for early termination queries (jobId → Job)
+    private final Map<String, Job> activeJobs = new ConcurrentHashMap<>();
+    
     /**
      * Creates a new JobManager.
      * TaskScheduler is created internally as an implementation detail.
@@ -111,6 +114,9 @@ public class JobManager {
         // N.B: the jobId is set internally here before any further processing
         log.info("Submitting job of type {} for execution", job.getJobId());
         String jobId = job.getJobId();
+        
+        // Track job for early termination queries
+        activeJobs.put(jobId, job);
 
         try {
             // 2. Get worker capabilities (null = use all active nodes)
@@ -261,6 +267,7 @@ public class JobManager {
     private void cleanup(String jobId) {
         pendingJobs.remove(jobId);
         jobResults.remove(jobId);
+        activeJobs.remove(jobId);
         log.debug("Job {} resources cleaned up", jobId);
     }
     
