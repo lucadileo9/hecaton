@@ -1,5 +1,7 @@
 package com.hecaton.task;
 
+import java.util.UUID;
+
 import com.hecaton.node.ExecutionContext;
 
 /**
@@ -30,7 +32,8 @@ public abstract class AbstractTask implements Task {
      */
     protected AbstractTask(String jobId) {
         this.jobId = jobId;
-        this.taskId = "task-" + System.currentTimeMillis();
+        // this.taskId = "task-" + System.currentTimeMillis();
+        this.taskId = UUID.randomUUID().toString();
     }
     
     @Override
