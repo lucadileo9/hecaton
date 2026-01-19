@@ -39,7 +39,8 @@ public class SumRangeTask extends AbstractTask {
         
         System.out.println("  [EXEC] " + getTaskId() + " summing [" + start + "-" + end + "] = " + sum);
         
-        return TaskResult.success(
+        // Return PARTIAL result (contribution to final sum, non-terminal)
+        return TaskResult.partial(
             this.getJobId(),
             this.getTaskId(),
             sum,
