@@ -362,5 +362,21 @@ public class JobManager {
         log.warn("Facade: Worker {} failed, delegating to TaskScheduler", workerId);
         taskScheduler.onWorkerFailed(workerId);
     }
+    
+    /**
+     * Checks if a job supports early termination.
+     * Called by TaskScheduler to determine if a job should be terminated when a result is found.
+     * 
+     * @param jobId ID of the job to check
+     * @return true if job supports early termination, false otherwise (defaults to false if job not found)
+     */
+    public boolean supportsEarlyTermination(String jobId) {
+        Job job = activeJobs.get(jobId);
+        if (job == null) {
+            log.warn("Job {} not found in activeJobs, assuming no early termination support", jobId);
+            return false;
+        }
+        return job.supportsEarlyTermination();
+    }
 
 }
