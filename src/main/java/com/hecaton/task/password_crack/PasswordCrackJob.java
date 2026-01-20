@@ -52,8 +52,7 @@ public class PasswordCrackJob extends AbstractJob {
      * @throws IllegalArgumentException if parameters are invalid
      */
     public PasswordCrackJob(String targetHash, String charset, int passwordLength) {
-        super();
-        setJobId();
+        super(); // N.B.: Call AbstractJob constructor to auto-generate jobId
         
         // Validate input
         if (targetHash == null || !targetHash.matches("[0-9a-fA-F]{32}")) {
