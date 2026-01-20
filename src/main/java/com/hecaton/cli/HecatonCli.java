@@ -1,7 +1,7 @@
 package com.hecaton.cli;
 
 import com.hecaton.cli.commands.ClusterCommand;
-// import com.hecaton.cli.commands.JobCommand;
+import com.hecaton.cli.commands.JobCommand;
 import com.hecaton.cli.commands.NodeCommand;
 import com.hecaton.cli.commands.VersionCommand;
 import picocli.CommandLine;
@@ -23,7 +23,7 @@ import java.util.concurrent.Callable;
     mixinStandardHelpOptions = true,
     subcommands = { // these are the subcommands, each implemented in their own class
         NodeCommand.class, 
-        // JobCommand.class,
+        JobCommand.class,
         ClusterCommand.class,
         VersionCommand.class
     }
