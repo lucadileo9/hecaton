@@ -21,6 +21,7 @@
         <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.4.11</logback.version>
         <junit.version>5.10.0</junit.version>
+        <picocli.version>4.7.5</picocli.version>
     </properties>
 
     <dependencies>
@@ -36,6 +37,13 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
+        </dependency>
+
+        <!-- CLI: Picocli -->
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+            <version>${picocli.version}</version>
         </dependency>
 
         <!-- Testing: JUnit 5 -->
@@ -74,28 +82,26 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Assembly Plugin - Create executable JAR -->
+            <!-- Maven Shade Plugin - Create fat JAR with dependencies -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.6.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>com.hecaton.cli.Main</mainClass>
-                        </manifest>
-                    </archive>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                </configuration>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.hecaton.cli.HecatonCli</mainClass>
+                                </transformer>
+                            </transformers>
+                            <finalName>hecaton</finalName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

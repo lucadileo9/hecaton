@@ -2,6 +2,8 @@ package com.hecaton.rmi;
 
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.task.TaskResult;
+import com.hecaton.task.Job;
+import com.hecaton.task.JobResult;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
@@ -60,4 +62,20 @@ public interface LeaderService extends Remote {
      * @throws RemoteException if RMI communication fails
      */
     void ping(String workerId) throws RemoteException;
-}
+
+    /**
+     * Returns the current size of the cluster (number of nodes).
+     * @return Number of nodes in the cluster
+     * @throws RemoteException if RMI communication fails
+     */
+    int getClusterSize() throws RemoteException;
+
+    /**
+     * Submit a new job to the cluster for execution.
+     * @param job Job to be executed
+     * @return JobResult
+     * @throws RemoteException if RMI communication fails
+     */
+    JobResult submitJob(Job job) throws RemoteException;
+
+    }
