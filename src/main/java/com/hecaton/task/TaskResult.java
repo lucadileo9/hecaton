@@ -21,11 +21,12 @@ public final class TaskResult implements Serializable {
      * Enum to represent the status of a TaskResult.
      */
     public enum Status {
-        SUCCESS,
-        NOT_FOUND,
-        FAILURE,
-        CANCELLED,
-        WORKING  // Task dispatched, execution in progress
+        SUCCESS,      // Task completed with final/terminal result (triggers early termination)
+        PARTIAL,      // Task completed with partial contribution (aggregation, non-terminal)
+        NOT_FOUND,    // Task completed but found nothing (search jobs)
+        FAILURE,      // Task failed with error
+        CANCELLED,    // Task cancelled (early termination)
+        WORKING       // Task dispatched, execution in progress
     }
     
     private final String jobId;
@@ -85,6 +86,33 @@ public final class TaskResult implements Serializable {
      */
     public static TaskResult success(String jobId, String taskId, Object data, long executionTimeMs) {
         return new TaskResult(jobId, taskId, Status.SUCCESS, data, null, executionTimeMs);
+    }
+    
+    /**
+     * Creates a partial result (contribution to aggregation, non-terminal).
+     * Used for jobs that aggregate multiple partial results (e.g., sum, count).
+     * Does NOT trigger early termination.
+     * 
+     * @param jobId ID of the job
+     * @param taskId ID of the task
+     * @param data partial contribution data
+     * @return TaskResult with status PARTIAL
+     */
+    public static TaskResult partial(String jobId, String taskId, Object data) {
+        return new TaskResult(jobId, taskId, Status.PARTIAL, data, null, 0);
+    }
+    
+    /**
+     * Creates a partial result with execution time.
+     * 
+     * @param jobId ID of the job
+     * @param taskId ID of the task
+     * @param data partial contribution data
+     * @param executionTimeMs execution time in milliseconds
+     * @return TaskResult with status PARTIAL
+     */
+    public static TaskResult partial(String jobId, String taskId, Object data, long executionTimeMs) {
+        return new TaskResult(jobId, taskId, Status.PARTIAL, data, null, executionTimeMs);
     }
     
     /**
@@ -164,11 +192,18 @@ public final class TaskResult implements Serializable {
     // ==================== Convenience Methods ====================
     
     /**
-     * @return true if the task completed successfully (SUCCESS or NOT_FOUND)
-     * N.B.: NOT_FOUND is considered a successful completion, as the task executed without errors.
+     * @return true if the task completed successfully (SUCCESS, PARTIAL, or NOT_FOUND)
+     * N.B.: NOT_FOUND and PARTIAL are considered successful completions, as the task executed without errors.
      */
     public boolean isSuccess() {
-        return status == Status.SUCCESS || status == Status.NOT_FOUND;
+        return status == Status.SUCCESS || status == Status.PARTIAL || status == Status.NOT_FOUND;
+    }
+    
+    /**
+     * @return true if the task has data (SUCCESS or PARTIAL)
+     */
+    public boolean hasData() {
+        return (status == Status.SUCCESS || status == Status.PARTIAL) && data != null;
     }
     
     /**
@@ -206,6 +241,9 @@ public final class TaskResult implements Serializable {
         switch (status) {
             case SUCCESS:
                 return String.format("TaskResult[job=%s, task=%s: SUCCESS, data=%s, time=%dms]", 
+                    jobId, taskId, data, executionTimeMs);
+            case PARTIAL:
+                return String.format("TaskResult[job=%s, task=%s: PARTIAL, data=%s, time=%dms]", 
                     jobId, taskId, data, executionTimeMs);
             case NOT_FOUND:
                 return String.format("TaskResult[job=%s, task=%s: NOT_FOUND, time=%dms]", 

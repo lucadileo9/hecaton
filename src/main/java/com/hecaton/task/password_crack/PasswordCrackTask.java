@@ -34,6 +34,9 @@ public class PasswordCrackTask extends AbstractTask {
     // Interruption check frequency (balance responsiveness vs performance)
     private static final int INTERRUPTION_CHECK_INTERVAL = 1000;
     
+    // Progress reporting frequency (log every N checks)
+    private static final int PROGRESS_REPORT_INTERVAL = 10000;
+    
     private final String targetHash;
     private final String charset;
     private final int passwordLength;
@@ -42,6 +45,9 @@ public class PasswordCrackTask extends AbstractTask {
     
     // Transient: cannot serialize MessageDigest, must recreate on worker
     private transient MessageDigest md5;
+    
+    // Reusable buffer for password generation (performance optimization)
+    private transient char[] passwordBuffer;
     
     /**
      * Creates a password cracking task for a specific range.
@@ -57,7 +63,7 @@ public class PasswordCrackTask extends AbstractTask {
     public PasswordCrackTask(String jobId, String taskId, String targetHash, 
                             String charset, int passwordLength, 
                             long startIndex, long endIndex) {
-        super(jobId);  // Call AbstractTask constructor
+        super(jobId, taskId);  // Pass explicit taskId
         this.targetHash = targetHash;
         this.charset = charset;
         this.passwordLength = passwordLength;
@@ -71,11 +77,13 @@ public class PasswordCrackTask extends AbstractTask {
         long combinationsChecked = 0;
         
         try {
-            // Initialize MD5 (must be done on worker, not serialized)
+            // Initialize MD5 and reusable buffer (must be done on worker, not serialized)
             this.md5 = MessageDigest.getInstance("MD5");
+            this.passwordBuffer = new char[passwordLength];
             
+            long totalCombinations = endIndex - startIndex + 1;
             log.debug("[EXEC] {} checking range [{}, {}] ({} combinations)", 
-                      getTaskId(), startIndex, endIndex, endIndex - startIndex + 1);
+                      getTaskId(), startIndex, endIndex, totalCombinations);
             
             // Brute-force loop
             for (long index = startIndex; index <= endIndex; index++) {
@@ -88,6 +96,13 @@ public class PasswordCrackTask extends AbstractTask {
                                   getTaskId(), combinationsChecked);
                         return TaskResult.cancelled(getJobId(), getTaskId());
                     }
+                }
+                
+                // Progress reporting (useful for long-running tasks)
+                if (combinationsChecked % PROGRESS_REPORT_INTERVAL == 0) {
+                    double progress = (combinationsChecked * 100.0) / totalCombinations;
+                    log.debug("[PROGRESS] {} - {}/{} checks ({:.1f}%)", 
+                              getTaskId(), combinationsChecked, totalCombinations, progress);
                 }
                 
                 // Convert index to password string
@@ -122,6 +137,7 @@ public class PasswordCrackTask extends AbstractTask {
     
     /**
      * Converts a numeric index to a password string using base-N conversion.
+     * Uses reusable buffer to avoid allocating new char[] on each call.
      * 
      * Algorithm:
      *   - Treat index as a number in base charset.length()
@@ -139,16 +155,15 @@ public class PasswordCrackTask extends AbstractTask {
      * @return Password string of length passwordLength
      */
     private String indexToPassword(long index) {
-        char[] result = new char[passwordLength];
         int base = charset.length();
         
         for (int i = passwordLength - 1; i >= 0; i--) {
             int digit = (int) (index % base);
-            result[i] = charset.charAt(digit);
+            passwordBuffer[i] = charset.charAt(digit);
             index /= base;
         }
         
-        return new String(result);
+        return new String(passwordBuffer);
     }
     
     /**

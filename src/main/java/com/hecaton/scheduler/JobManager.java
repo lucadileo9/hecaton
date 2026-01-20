@@ -51,6 +51,9 @@ public class JobManager {
     // Store results for completed jobs (jobId → results)
     private final Map<String, List<TaskResult>> jobResults = new ConcurrentHashMap<>();
     
+    // Track active jobs for early termination queries (jobId → Job)
+    private final Map<String, Job> activeJobs = new ConcurrentHashMap<>();
+    
     /**
      * Creates a new JobManager.
      * TaskScheduler is created internally as an implementation detail.
@@ -111,6 +114,9 @@ public class JobManager {
         // N.B: the jobId is set internally here before any further processing
         log.info("Submitting job of type {} for execution", job.getJobId());
         String jobId = job.getJobId();
+        
+        // Track job for early termination queries
+        activeJobs.put(jobId, job);
 
         try {
             // 2. Get worker capabilities (null = use all active nodes)
@@ -261,6 +267,7 @@ public class JobManager {
     private void cleanup(String jobId) {
         pendingJobs.remove(jobId);
         jobResults.remove(jobId);
+        activeJobs.remove(jobId);
         log.debug("Job {} resources cleaned up", jobId);
     }
     
@@ -354,6 +361,22 @@ public class JobManager {
     public void onWorkerFailed(String workerId) {
         log.warn("Facade: Worker {} failed, delegating to TaskScheduler", workerId);
         taskScheduler.onWorkerFailed(workerId);
+    }
+    
+    /**
+     * Checks if a job supports early termination.
+     * Called by TaskScheduler to determine if a job should be terminated when a result is found.
+     * 
+     * @param jobId ID of the job to check
+     * @return true if job supports early termination, false otherwise (defaults to false if job not found)
+     */
+    public boolean supportsEarlyTermination(String jobId) {
+        Job job = activeJobs.get(jobId);
+        if (job == null) {
+            log.warn("Job {} not found in activeJobs, assuming no early termination support", jobId);
+            return false;
+        }
+        return job.supportsEarlyTermination();
     }
 
 }

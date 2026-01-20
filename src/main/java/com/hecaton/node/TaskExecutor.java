@@ -10,11 +10,8 @@ import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.concurrent.*;
 
 /**
  * TaskExecutor is responsible for executing tasks on a worker node using a thread pool.
@@ -58,6 +55,15 @@ public class TaskExecutor {
     private final LeaderService leader;
     private final boolean isLeader;
     
+    // ==================== Early Termination Support ====================
+    
+    /**
+     * Tracks running tasks for cancellation support.
+     * Maps Future → Task to enable job-level cancellation.
+     * Concurrent for thread-safe access from multiple threads.
+     */
+    private final Map<Future<?>, Task> runningTasks = new ConcurrentHashMap<>();
+    
     // ==================== Constructor ====================
     
     /**
@@ -85,8 +91,13 @@ public class TaskExecutor {
     /**
      * Receives a batch of tasks from the Leader and executes them.
      * 
-     * Accumulates ALL results and sends them in a SINGLE RMI call at the end.
-     * This minimizes network overhead compared to sending one result per task.
+     * Uses CompletionService to process results as they arrive, enabling early termination.
+     * When a task finds a result (hasResult() = true) and supports early termination,
+     * this method will:
+     *   1. Cancel all remaining tasks for that job
+     *   2. Send ONLY the successful result to Leader (not the full batch)
+     * 
+     * For normal execution (no early termination), sends all results in batch.
      * 
      * @param tasks list of tasks to execute
      */
@@ -98,15 +109,19 @@ public class TaskExecutor {
         
         log.info("Received {} tasks from Leader - executing with thread pool...", tasks.size());
         
-        // Thread-safe list to accumulate results, because multiple threads could add results concurrently
-        List<TaskResult> allResults = Collections.synchronizedList(new ArrayList<>());
+        // CompletionService for processing results as they complete
+        CompletionService<TaskResult> completionService = new ExecutorCompletionService<>(threadPool);
+        // Thanks to CompletionService we can easily retrieve the results as soon as they are ready
+        // This will be explored further in the dedicated documentation.
+
+        // Track submitted futures for cancellation
+        List<Future<TaskResult>> submittedFutures = new ArrayList<>();
+        // Here we are collecting all the results
         
-        // Create CompletableFutures for all tasks
-        List<CompletableFuture<Void>> futures = tasks.stream() // trasform the list of tasks into a stream
-            .map(task -> CompletableFuture.runAsync(() -> { // map each task to a CompletableFuture that runs asynchronously
-        // q: what is a CompletableFuture?
-        // a: A CompletableFuture is a class in Java that represents a future result of an asynchronous computation.
-        // It allows you to write non-blocking code by providing methods to handle the result once it's available.
+        // Submit all tasks to thread pool
+        for (Task task : tasks) {
+            // We put in "future" the result of the submission to the completion service
+            Future<TaskResult> future = completionService.submit(() -> { // N.B.: the submition is still parallel
                 try {
                     log.debug("Executing task: {}", task.getTaskId());
                     
@@ -114,47 +129,206 @@ public class TaskExecutor {
                     TaskResult result = task.execute();
                     
                     log.debug("Task {} completed with status {}", task.getTaskId(), result.getStatus());
-                    // Add result to the shared list
-                    allResults.add(result);
+                    return result;
                     
                 } catch (Exception e) {
                     log.error("Task {} failed with exception", task.getTaskId(), e);
                     
-                    // If execution fails, create a FAILURE result, but continue processing other tasks
-                    TaskResult errorResult = TaskResult.failure(
+                    // If execution fails, create a FAILURE result
+                    return TaskResult.failure(
                         task.getJobId(),
                         task.getTaskId(),
                         "Execution failed: " + e.getMessage()
                     );
-                    allResults.add(errorResult);
                 }
-            }, threadPool))
-            .collect(Collectors.toList());
+            });
+            
+            // Than add the future to the result list
+            submittedFutures.add(future);
+            runningTasks.put(future, task); // and track list (for cancellation)
+        }
+        //N.B.: after this line the task is officially submitted for execution
+        // so they are running in background, we do not have the result yet.
+
+        // Process results AS THEY ARRIVE (streaming instead of batch)
+        // so we don't have to wait for ALL tasks to complete before starting processing
+        processTaskResults(tasks.size(), submittedFutures, completionService);
+    }
+    
+    /**
+     * Processes task results as they complete, with early termination support.
+     * 
+     * Monitors results from CompletionService. If a result with data is found (hasResult()),
+     * triggers early termination: cancels remaining tasks and sends only that result.
+     * 
+     * @param totalTasks total number of tasks submitted
+     * @param submittedFutures list of submitted futures for tracking
+     * @param completionService completion service to poll results from
+     */
+    private void processTaskResults(int totalTasks, 
+                                    List<Future<TaskResult>> submittedFutures,
+                                    CompletionService<TaskResult> completionService) {
         
-        // Wait for all tasks to complete, then send ALL results in ONE batch
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .thenRun(() -> {
-                try {
-                    log.info("All {} tasks completed, submitting results to leader in single batch", allResults.size());
+        // Execute asynchronously to avoid blocking RMI thread
+        CompletableFuture.runAsync(() -> {
+            // here we will collect the results that we will send to the leader
+            List<TaskResult> results = new ArrayList<>();
+            boolean earlyTerminationTriggered = false;
+            String jobId = null;
+            
+            try {
+                // Process results as they complete
+                for (int i = 0; i < totalTasks; i++) { 
+                    // blocks until a task completes, and than gives us the future
+                    Future<TaskResult> completedFuture = completionService.take(); 
+                    TaskResult result = completedFuture.get(); // get the ACTUAL result
                     
-                    if (isLeader) {
-                        // Leader submits to itself directly (no RMI)
-                        leader.submitResults(allResults);
-                    } else {
-                        // Worker submits via RMI to Leader (ONE call for all results)
-                        leader.submitResults(allResults);
+                    // Remove from tracking
+                    runningTasks.remove(completedFuture);
+                    
+                    if (jobId == null) {
+                        jobId = result.getJobId(); // capture jobId (it is contained in TaskResult)
                     }
                     
-                    log.info("Successfully submitted {} results to leader", allResults.size());
+                    // Check for early termination
+                    // Only SUCCESS status triggers early termination (terminal result found)
+                    // PARTIAL results do NOT trigger early termination (they are contributions)
+                    if (!earlyTerminationTriggered  // the early termination has not been already triggered
+                        && result.getStatus() == TaskResult.Status.SUCCESS  // and this is a TERMINAL result, not PARTIAL
+                    ) {
+                        log.info("[EARLY TERMINATION] Task {} found terminal result, triggering local cancellation", 
+                                result.getTaskId());
+                        
+                        // Cancel all remaining tasks for this job
+                        cancelRemainingTasks(jobId, submittedFutures);
+                        earlyTerminationTriggered = true;
+                        
+                        // Send ONLY this result immediately
+                        results.add(result);
+                        submitResultsToLeader(results);
+                        
+                        log.info("[EARLY TERMINATION] Sent result and cancelled remaining tasks for job={}", jobId);
+                        return;  // Stop processing
+                    }
                     
-                } catch (RemoteException e) {
-                    log.error("Failed to submit results to leader", e);
+                    results.add(result);
                 }
-            })
-            .exceptionally(ex -> {
-                log.error("Unexpected error during task execution", ex);
-                return null;
-            });
+                
+                // Normal completion - all tasks finished without early termination
+                log.info("All {} tasks completed normally, submitting batch results", totalTasks);
+                submitResultsToLeader(results); 
+                
+            } catch (InterruptedException e) {
+                log.warn("Task processing interrupted", e);
+                Thread.currentThread().interrupt();
+            } catch (CancellationException e) {
+                log.warn("Task was cancelled", e);
+            }
+                 
+            catch (Exception e) {
+                log.error("Error processing task results", e);
+            }
+        }, threadPool);
+    }
+    
+    /**
+     * Cancels all tasks for a specific job that are still running.
+     * Called during early termination to stop unnecessary computation.
+     * 
+     * @param jobId job to cancel tasks for
+     * @param futures list of all submitted futures
+     */
+    private void cancelRemainingTasks(String jobId, List<Future<TaskResult>> futures) {
+        int cancelledCount = 0;
+        
+        for (Future<TaskResult> future : futures) { // for each submitted future (aka: task, that may be running)
+            try{ 
+                Task task = runningTasks.get(future);
+                
+                if (task != null  // make sure task is still running
+                    && task.getJobId().equals(jobId) // and matches the jobId we want to cancel
+                ) {
+                    if (!future.isDone()) { // only if not already completed
+                        boolean cancelled = future.cancel(true);  // Interrupt thread
+                        if (cancelled) {
+                            cancelledCount++;
+                            runningTasks.remove(future);
+                            log.debug("Cancelled task={}", task.getTaskId());
+                        }
+                    }
+                }
+            } catch (CancellationException e) {
+                // Task was already cancelled
+                log.debug("Task future was already cancelled", e);
+                continue;
+            } catch (Exception e) {
+                log.error("Error cancelling task future", e);
+            }
+        }
+        
+        log.info("[EARLY TERMINATION] Cancelled {} remaining tasks for job={}", cancelledCount, jobId);
+    }
+    
+    /**
+     * Submits results to Leader via RMI.
+     * Handles both Leader (direct call) and Worker (RMI call) cases.
+     * 
+     * @param results list of task results to submit
+     */
+    private void submitResultsToLeader(List<TaskResult> results) {
+        try {
+            if (isLeader) {
+                // Leader submits to itself directly (no RMI)
+                leader.submitResults(results);
+            } else {
+                // Worker submits via RMI to Leader
+                leader.submitResults(results);
+            }
+            
+            log.info("Successfully submitted {} results to leader", results.size());
+            
+        } catch (RemoteException e) {
+            log.error("Failed to submit results to leader", e);
+        }
+    }
+    
+    /**
+     * Cancels all running tasks for a specific job (called via RMI from Leader).
+     * 
+     * This is invoked when the Leader detects early termination and broadcasts
+     * cancelJob() to all workers. Workers interrupt threads executing tasks for this job.
+     * 
+     * N.B.: this will be called from the leader when another worker found a result and
+     * wants to stop all other workers from continuing useless computation.
+     * @param jobId job identifier to cancel
+     * @return number of tasks cancelled
+     */
+    public int cancelJob(String jobId) {
+        log.info("[CANCELLATION] Cancelling all tasks for job={}", jobId);
+        
+        int cancelledCount = 0;
+        
+        // Iterate over running tasks and cancel those matching jobId
+        // It is very similar to the early termination cancellation logic, so I will not repeat comments
+        for (Map.Entry<Future<?>, Task> entry : runningTasks.entrySet()) {
+            Future<?> future = entry.getKey();
+            Task task = entry.getValue();
+            
+            if (task.getJobId().equals(jobId)) {
+                if (!future.isDone()) {
+                    boolean cancelled = future.cancel(true);  // Interrupt the thread
+                    if (cancelled) {
+                        cancelledCount++;
+                        log.debug("[CANCELLATION] Cancelled task={}", task.getTaskId());
+                    }
+                }
+                // Remove from tracking regardless of cancellation success
+                runningTasks.remove(future);
+            }
+        }
+        
+        log.info("[CANCELLATION] Cancelled {} tasks for job={}", cancelledCount, jobId);
+        return cancelledCount;
     }
     
     /**
@@ -165,6 +339,9 @@ public class TaskExecutor {
      */
     public void shutdown() {
         log.info("Shutting down TaskExecutor...");
+        
+        // Clear running tasks tracking
+        runningTasks.clear();
         
         threadPool.shutdown();
         

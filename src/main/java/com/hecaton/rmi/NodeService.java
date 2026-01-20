@@ -89,4 +89,21 @@ public interface NodeService extends Remote {
      * @throws RemoteException if RMI communication fails
      */
     void executeTasks(List<Task> tasks) throws RemoteException;
+    
+    /**
+     * Cancels all running tasks for the specified job (early termination).
+     * 
+     * Called by Leader when a result is found and the job supports early termination.
+     * Worker should:
+     *   1. Interrupt all threads executing tasks for this jobId
+     *   2. Remove pending tasks from queue
+     *   3. Stop processing new tasks for this job
+     * 
+     * This is a best-effort operation. Tasks that have already completed or are 
+     * non-interruptible may not be cancelled.
+     * 
+     * @param jobId ID of the job to cancel
+     * @throws RemoteException if RMI communication fails
+     */
+    void cancelJob(String jobId) throws RemoteException;
 }

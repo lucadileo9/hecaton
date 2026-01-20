@@ -700,4 +700,14 @@ public class NodeImpl implements NodeService, LeaderService {
         // Delegate to TaskExecutor (uses thread pool for parallel execution)
         taskExecutor.receiveTasks(tasks);
     }
+    
+    @Override
+    public void cancelJob(String jobId) throws RemoteException {
+        log.info("Received cancelJob({}) request from Leader", jobId);
+        
+        // Delegate to TaskExecutor to interrupt running tasks
+        int cancelledCount = taskExecutor.cancelJob(jobId);
+        
+        log.info("Cancelled {} tasks for job={}", cancelledCount, jobId);
+    }
 }

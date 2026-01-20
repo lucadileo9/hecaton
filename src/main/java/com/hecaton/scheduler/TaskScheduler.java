@@ -47,6 +47,7 @@ public class TaskScheduler {
      *   - Cassaforte (assignments): Immutable "backup" for worker failure recovery
      *   - Lavagna (taskStatus): Mutable current state, updated constantly
      *   - Contatore (pendingTasks): Atomic counter for O(1) completion check
+     *   - Terminated flag: Tracks early termination state
      */
     private static class JobContext {
         // LA "CASSAFORTE" (Read-Only after creation)
@@ -68,6 +69,11 @@ public class TaskScheduler {
         // When it reaches 0, the job is finished.
         // Avoids having to count how many "COMPLETED" there are on the board each time.
         final AtomicInteger pendingTasks;
+        
+        // EARLY TERMINATION FLAG
+        // Set to true when a task result is found and job supports early termination.
+        // Prevents double-triggering of termination logic and blocks task reassignment.
+        volatile boolean terminated = false;
         
         JobContext(Map<String, List<Task>> assignments, int totalTaskCount) {
             this.assignments = new HashMap<>(assignments);  // Defensive copy
@@ -259,6 +265,8 @@ public class TaskScheduler {
         }
         
         // Process all results (single job)
+        boolean earlyTerminationTriggered = false;
+        
         for (TaskResult result : results) {
             String taskId = result.getTaskId();
             
@@ -285,11 +293,156 @@ public class TaskScheduler {
             int remaining = ctx.pendingTasks.decrementAndGet();
             logger.debug("Job {} pendingTasks: {} remaining", jobId, remaining);
             
+            // EARLY TERMINATION DETECTION
+            // Check if result contains data (e.g., password found) and job supports early termination
+            if (!earlyTerminationTriggered && result.hasResult()) {
+                logger.info("Result found in task={}, checking early termination support", taskId);
+                if (supportsEarlyTermination(jobId)) {
+                    logger.info("Early termination supported, triggering job={} cancellation", jobId);
+                    terminateJob(jobId, ctx);
+                    earlyTerminationTriggered = true;
+                    // Continue processing remaining results (might be in-flight)
+                }
+            }
+            
             // O(1) Check: job finito?
             if (remaining == 0) {
                 logger.info("Job {} COMPLETE (all tasks finished)", jobId);
                 notifyJobComplete(jobId, ctx);
             }
+        }
+    }
+    
+    /**
+     * Triggers early termination for a job.
+     * 
+     * This method:
+     *   1. Marks job as terminated (prevents double-triggering)
+     *   2. Marks all WORKING tasks as CANCELLED in taskStatus
+     *   3. Broadcasts cancelJob() RMI to all workers involved in this job
+     * 
+     * Called when a task result is found and the job supports early termination.
+     * 
+     * @param jobId job identifier
+     * @param ctx JobContext for the job
+     */
+    private void terminateJob(String jobId, JobContext ctx) {
+        // Check if already terminated (idempotency)
+        if (ctx.terminated) {
+            logger.debug("Job {} already terminated, ignoring duplicate trigger", jobId);
+            return;
+        }
+        
+        logger.info("[EARLY TERMINATION] Terminating job={}", jobId);
+        ctx.terminated = true;
+        
+        // Broadcast cancellation to all workers involved in this job
+        Set<String> workers = getWorkersForJob(jobId);
+        logger.info("[EARLY TERMINATION] Broadcasting cancelJob({}) to {} workers", jobId, workers.size());
+        
+        for (String workerId : workers) {
+            notifyCancellationToWorker(workerId, jobId);
+        }
+        
+        // Mark all WORKING tasks as CANCELLED in Lavagna
+        int cancelledCount = 0;
+        for (Map.Entry<String, TaskResult> entry : ctx.taskStatus.entrySet()) {
+            TaskResult status = entry.getValue();
+            if (status.isWorking()) {
+                String taskId = entry.getKey();
+                entry.setValue(TaskResult.cancelled(jobId, taskId));
+                cancelledCount++;
+            }
+        }
+        
+        logger.info("[EARLY TERMINATION] Marked {} tasks as CANCELLED for job={}", cancelledCount, jobId);
+        
+        // Decrement pending counter by number of cancelled tasks
+        // This unblocks waitForCompletion() in JobManager
+        int remaining = ctx.pendingTasks.addAndGet(-cancelledCount);
+        logger.debug("[EARLY TERMINATION] Decremented pendingTasks by {}, remaining={}", cancelledCount, remaining);
+        
+        // Check if job is now complete (all tasks accounted for)
+        if (remaining == 0) {
+            logger.info("[EARLY TERMINATION] Job {} COMPLETE (all tasks finished/cancelled)", jobId);
+            notifyJobComplete(jobId, ctx);
+        } 
+    }
+    
+    /**
+     * Checks if a job supports early termination.
+     * Delegates to JobManager which maintains Job references.
+     * 
+     * @param jobId job identifier
+     * @return true if job supports early termination
+     */
+    private boolean supportsEarlyTermination(String jobId) {
+        return jobManager.supportsEarlyTermination(jobId);
+    }
+    
+    /**
+     * Finds all workers assigned to a specific job.
+     * Inverts the workerIndex lookup: searches all workers for those containing this jobId.
+     * 
+     * @param jobId job identifier
+     * @return set of worker IDs involved in this job
+     */
+    private Set<String> getWorkersForJob(String jobId) {
+        Set<String> workers = new HashSet<>();
+        
+        // workerIndex is Map<WorkerId, Set<JobId>>
+        // We need to find all workers that have this jobId in their set
+        for (Map.Entry<String, Set<String>> entry : workerIndex.entrySet()) {
+            String workerId = entry.getKey();
+            Set<String> jobIds = entry.getValue();
+            
+            if (jobIds.contains(jobId)) {
+                workers.add(workerId);
+            }
+        }
+        
+        logger.debug("Found {} workers for job={}: {}", workers.size(), jobId, workers);
+        return workers;
+    }
+    
+    /**
+     * Sends cancelJob() RMI call to a specific worker.
+     * Uses the same connection pattern as dispatchTasksToWorker().
+     * 
+     * Best-effort operation: logs warning if worker unreachable, but continues.
+     * Worker might be dead (will be detected by FailureDetector) or network issue.
+     * 
+     * @param workerId target worker node ID
+     * @param jobId job to cancel
+     */
+    private void notifyCancellationToWorker(String workerId, String jobId) {
+        try {
+            // Parse workerId to get host:port
+            // Expected format: "node-host-port-timestamp"
+            String[] parts = workerId.split("-");
+            if (parts.length < 3) {
+                logger.error("Invalid workerId format: {} (expected node-host-port-timestamp)", workerId);
+                return;
+            }
+            
+            String host = parts[1];
+            int port = Integer.parseInt(parts[2]);
+            
+            // Connect to worker's RMI registry
+            Registry registry = LocateRegistry.getRegistry(host, port);
+            NodeService worker = (NodeService) registry.lookup("node");
+            
+            // RMI call to cancel job
+            worker.cancelJob(jobId);
+            logger.info("[EARLY TERMINATION] Successfully sent cancelJob({}) to worker={}", jobId, workerId);
+            
+        } catch (RemoteException e) {
+            logger.warn("[EARLY TERMINATION] RMI error sending cancelJob({}) to worker={}: {}", 
+                       jobId, workerId, e.getMessage());
+            // Worker might be dead - FailureDetector will handle cleanup
+        } catch (Exception e) {
+            logger.error("[EARLY TERMINATION] Error sending cancelJob({}) to worker={}", 
+                        jobId, workerId, e);
         }
     }
     
@@ -352,6 +505,12 @@ public class TaskScheduler {
             JobContext ctx = jobs.get(jobId);
             if (ctx == null) {
                 logger.warn("Job {} no longer exists (already completed?)", jobId);
+                continue;
+            }
+            
+            // Skip reassignment if job was terminated via early termination
+            if (ctx.terminated) {
+                logger.info("Job {} is terminated (early termination), skipping reassignment", jobId);
                 continue;
             }
             

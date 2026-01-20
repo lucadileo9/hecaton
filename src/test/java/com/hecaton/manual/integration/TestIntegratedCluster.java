@@ -5,6 +5,7 @@ import com.hecaton.node.NodeImpl;
 import com.hecaton.scheduler.JobManager;
 import com.hecaton.task.Job;
 import com.hecaton.task.JobResult;
+import com.hecaton.task.splitting.DynamicSplitting;
 import com.hecaton.task.sum_range.SumRangeJob;
 
 /**
@@ -37,7 +38,8 @@ public class TestIntegratedCluster {
         System.out.println("╚═══════════════════════════════════════════════════════════╝\n");
         
         // Create config with defaults
-        ClusterConfig config = new ClusterConfig.Builder().build();
+        ClusterConfig config = new ClusterConfig.Builder().splittingStrategy(new DynamicSplitting(10))
+        .build();
         System.out.println("Config: " + config + "\n");
         
         // Start Leader
