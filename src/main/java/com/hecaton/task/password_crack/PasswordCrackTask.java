@@ -43,6 +43,9 @@ public class PasswordCrackTask extends AbstractTask {
     // Transient: cannot serialize MessageDigest, must recreate on worker
     private transient MessageDigest md5;
     
+    // Reusable buffer for password generation (performance optimization)
+    private transient char[] passwordBuffer;
+    
     /**
      * Creates a password cracking task for a specific range.
      * 
@@ -71,11 +74,13 @@ public class PasswordCrackTask extends AbstractTask {
         long combinationsChecked = 0;
         
         try {
-            // Initialize MD5 (must be done on worker, not serialized)
+            // Initialize MD5 and reusable buffer (must be done on worker, not serialized)
             this.md5 = MessageDigest.getInstance("MD5");
+            this.passwordBuffer = new char[passwordLength];
             
+            long totalCombinations = endIndex - startIndex + 1;
             log.debug("[EXEC] {} checking range [{}, {}] ({} combinations)", 
-                      getTaskId(), startIndex, endIndex, endIndex - startIndex + 1);
+                      getTaskId(), startIndex, endIndex, totalCombinations);
             
             // Brute-force loop
             for (long index = startIndex; index <= endIndex; index++) {
@@ -122,6 +127,7 @@ public class PasswordCrackTask extends AbstractTask {
     
     /**
      * Converts a numeric index to a password string using base-N conversion.
+     * Uses reusable buffer to avoid allocating new char[] on each call.
      * 
      * Algorithm:
      *   - Treat index as a number in base charset.length()
@@ -139,16 +145,15 @@ public class PasswordCrackTask extends AbstractTask {
      * @return Password string of length passwordLength
      */
     private String indexToPassword(long index) {
-        char[] result = new char[passwordLength];
         int base = charset.length();
         
         for (int i = passwordLength - 1; i >= 0; i--) {
             int digit = (int) (index % base);
-            result[i] = charset.charAt(digit);
+            passwordBuffer[i] = charset.charAt(digit);
             index /= base;
         }
         
-        return new String(result);
+        return new String(passwordBuffer);
     }
     
     /**
