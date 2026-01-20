@@ -60,7 +60,6 @@ public class NodeCommand {
             // Validation
             if (mode == NodeMode.WORKER && joinAddress == null) {
                 System.err.println("WARNING: without --join for WORKER mode auto-discovery will be attempted");
-                return 1;
             }
             
             if (mode == NodeMode.LEADER && joinAddress != null) {
