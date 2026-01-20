@@ -40,19 +40,23 @@ public class PasswordCrackJob extends AbstractJob {
     
     private final String targetHash;      // MD5 hash to crack (32 hex chars, lowercase)
     private final String charset;         // Character set to use for brute-force
-    private final int passwordLength;     // Fixed password length
-    private final long totalCombinations; // charset.length() ^ passwordLength
+    private final int minLength;          // Minimum password length to try
+    private final int maxLength;          // Maximum password length to try
+    private final long totalCombinations; // Sum of charset.length()^len for all lengths
     
     /**
-     * Creates a password cracking job.
+     * Creates a password cracking job with length range.
+     * Tries all passwords from minLength to maxLength (inclusive).
+     * Shorter passwords are tried first (more efficient).
      * 
      * @param targetHash MD5 hash (32 hex characters, case-insensitive)
      * @param charset Character set for brute-force (e.g., "abc" or CHARSET_LOWERCASE)
-     * @param passwordLength Fixed password length to try
+     * @param minLength Minimum password length (1-8)
+     * @param maxLength Maximum password length (1-8, >= minLength)
      * @throws IllegalArgumentException if parameters are invalid
      */
-    public PasswordCrackJob(String targetHash, String charset, int passwordLength) {
-        super(); // N.B.: Call AbstractJob constructor to auto-generate jobId
+    public PasswordCrackJob(String targetHash, String charset, int minLength, int maxLength) {
+        super();
         
         // Validate input
         if (targetHash == null || !targetHash.matches("[0-9a-fA-F]{32}")) {
@@ -61,8 +65,15 @@ public class PasswordCrackJob extends AbstractJob {
         if (charset == null || charset.isEmpty()) {
             throw new IllegalArgumentException("Charset cannot be empty");
         }
-        if (passwordLength < 1 || passwordLength > 8) {
-            throw new IllegalArgumentException("Password length must be 1-8 (got: " + passwordLength + ")");
+        if (minLength < 1 || minLength > 8) {
+            throw new IllegalArgumentException("minLength must be 1-8 (got: " + minLength + ")");
+        }
+        if (maxLength < 1 || maxLength > 8) {
+            throw new IllegalArgumentException("maxLength must be 1-8 (got: " + maxLength + ")");
+        }
+        if (minLength > maxLength) {
+            throw new IllegalArgumentException(
+                String.format("minLength (%d) cannot exceed maxLength (%d)", minLength, maxLength));
         }
         
         this.targetHash = targetHash.toLowerCase(); // Normalize to lowercase
@@ -70,8 +81,20 @@ public class PasswordCrackJob extends AbstractJob {
         this.passwordLength = passwordLength;
         this.totalCombinations = calculateTotalCombinations(charset.length(), passwordLength);
         
-        log.debug("PasswordCrackJob created: hash={}, charset={} chars, length={}, combinations={}", 
-                  targetHash.substring(0, 8) + "...", charset.length(), passwordLength, totalCombinations);
+        log.debug("PasswordCrackJob created: hash={}, charset={} chars, length range=[{},{}], combinations={}", 
+                  targetHash.substring(0, 8) + "...", charset.length(), minLength, maxLength, totalCombinations);
+    }
+    
+    /**
+     * Creates a password cracking job with fixed length (backward compatibility).
+     * 
+     * @param targetHash MD5 hash (32 hex characters, case-insensitive)
+     * @param charset Character set for brute-force
+     * @param passwordLength Fixed password length to try (1-8)
+     * @throws IllegalArgumentException if parameters are invalid
+     */
+    public PasswordCrackJob(String targetHash, String charset, int passwordLength) {
+        this(targetHash, charset, passwordLength, passwordLength);
     }
     
     /**
