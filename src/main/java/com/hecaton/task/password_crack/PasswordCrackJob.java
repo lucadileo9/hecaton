@@ -236,7 +236,11 @@ public class PasswordCrackJob extends AbstractJob {
         log.info("[START] PasswordCrackJob {} started", getJobId());
         log.info("  Target hash: {}...", targetHash.substring(0, 16));
         log.info("  Charset: {} characters", charset.length());
-        log.info("  Password length: {}", passwordLength);
+        if (minLength == maxLength) {
+            log.info("  Password length: {}", minLength);
+        } else {
+            log.info("  Password length range: [{}, {}]", minLength, maxLength);
+        }
         log.info("  Total combinations: {}", String.format("%,d", totalCombinations));
     }
     
@@ -263,8 +267,20 @@ public class PasswordCrackJob extends AbstractJob {
         return charset;
     }
     
+    public int getMinLength() {
+        return minLength;
+    }
+    
+    public int getMaxLength() {
+        return maxLength;
+    }
+    
+    /**
+     * @deprecated Use getMinLength() and getMaxLength() instead
+     */
+    @Deprecated
     public int getPasswordLength() {
-        return passwordLength;
+        return maxLength;  // Backward compatibility
     }
     
     public long getTotalCombinations() {
