@@ -1,6 +1,5 @@
 package com.hecaton.manual.node;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 
 /**
@@ -32,9 +31,8 @@ public class TestWorkerNode {
         System.out.println("========================================");
         System.out.println();
         
-        // Create Worker on port 5002
-        // Create election strategy for Worker
-        NodeImpl worker = new NodeImpl("localhost", 5002, Algorithm.BULLY);
+        // Create Worker on port 5002 with default config
+        NodeImpl worker = new NodeImpl("localhost", 5002);
         
         // Join Leader's cluster
         worker.joinCluster("localhost", 5001);

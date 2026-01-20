@@ -5,11 +5,15 @@ import com.hecaton.discovery.LeaderDiscoveryStrategy;
 import com.hecaton.discovery.NodeInfo;
 import com.hecaton.discovery.UdpDiscoveryService;
 import com.hecaton.election.ElectionStrategy;
-import com.hecaton.election.ElectionStrategyFactory;
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
+import com.hecaton.monitor.FailureDetector;
 import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
+import com.hecaton.scheduler.JobManager;
+import com.hecaton.task.Task;
+import com.hecaton.task.TaskResult;
+import com.hecaton.task.assignment.AssignmentStrategy;
+import com.hecaton.task.splitting.SplittingStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,26 +44,57 @@ public class NodeImpl implements NodeService, LeaderService {
     // Cluster membership registry (only for Leader)
     private ClusterMembershipService membershipService;
     
+    // Failure detector (only for Leader, monitors worker heartbeats)
+    private FailureDetector failureDetector;
+    
+    // Task execution management (only for Leader)
+    // JobManager is the facade - NodeImpl only interacts with it
+    private JobManager jobManager;
+    
     // Leader discovery strategy
     private LeaderDiscoveryStrategy discoveryStrategy;
 
     // Heartbeat monitor (only for Workers monitoring Leader)
     private HeartbeatMonitor leaderMonitor;
     // Reference to Leader (for Workers)
-    private NodeService leaderNode;
+    private NodeService leaderNode; // THIS SMELLS, BECAUSE MAYBE WE CAN USE LeaderService DIRECTLY
     
     private ElectionStrategy electionStrategy;
     private List<NodeInfo> clusterNodesCache;  // Cache for Worker nodes to run election
     
+    // Cluster configuration (strategies for election and task execution)
+    private final ClusterConfig config;
+
+    // Node capabilities (static for now)
+    public final NodeCapabilities capabilities;
+    
+    // Task executor (thread pool for parallel task execution)
+    private TaskExecutor taskExecutor;
+    
+    /**
+     * Creates a new node instance with default cluster configuration.
+     * Uses default strategies: BULLY election, UniformSplitting, RoundRobinAssignment.
+     * 
+     * Convenience constructor for simple use cases and testing.
+     * 
+     * @param host Host address (e.g. "localhost" or "192.168.1.10")
+     * @param port RMI registry port
+     * @throws RemoteException if RMI export fails
+     */
+    public NodeImpl(String host, int port) throws RemoteException {
+        this(host, port, new ClusterConfig.Builder().build());
+    }
+    
     /**
      * Creates a new node instance.
      * Each node creates its own RMI Registry on the specified port.
+     * 
      * @param host Host address (e.g. "localhost" or "192.168.1.10")
      * @param port RMI registry port
-     * @param algorithm Election algorithm to use (BULLY, RAFT, RING)
+     * @param config Cluster configuration (election algorithm + task strategies)
      * @throws RemoteException if RMI export fails
      */
-    public NodeImpl(String host, int port, Algorithm algorithm) throws RemoteException {
+    public NodeImpl(String host, int port, ClusterConfig config) throws RemoteException {
         // This prevents "Connection refused" errors when RMI auto-detects wrong IP on multi-NIC systems
         if (System.getProperty("java.rmi.server.hostname") == null) {
             System.setProperty("java.rmi.server.hostname", "localhost");
@@ -69,16 +104,26 @@ public class NodeImpl implements NodeService, LeaderService {
         this.nodeId = "node-" + host + "-" + port + "-" + nodeIdValue;
         this.port = port;
         this.isLeader = false;
+        this.config = Objects.requireNonNull(config, "config cannot be null");
         
-        // Create election strategy via factory
+        // Create election strategy from config
         this.clusterNodesCache = new ArrayList<>();
-        this.electionStrategy = ElectionStrategyFactory.create(
-            algorithm,                      // Algorithm choice
+        this.electionStrategy = config.createElectionStrategy(
             this,                           // Self reference (now fully initialized!)
             nodeIdValue,                    // Election ID
             () -> this.clusterNodesCache    // Supplier for lazy cache access
         );
         
+        this.capabilities = NodeCapabilities.detect(); // Detect static capabilities
+        
+        // Initialize TaskExecutor (will be configured after we know if we're Leader or Worker)
+        // For now, pass null for leader - will be set in startAsLeader() or joinCluster()
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            null,          // Leader reference set later
+            false          // isLeader flag updated later
+        );
+
         // Export this object for RMI (makes it remotely callable)
         UnicastRemoteObject.exportObject(this, 0);
         
@@ -92,6 +137,8 @@ public class NodeImpl implements NodeService, LeaderService {
     /**
      * Starts this node as the cluster Leader.
      * Uses the existing RMI Registry and additionally binds itself as "leader".
+     * Strategies are taken from the ClusterConfig provided at construction.
+     * 
      * @throws RemoteException if binding fails
      */
     public void startAsLeader() throws RemoteException {
@@ -99,6 +146,24 @@ public class NodeImpl implements NodeService, LeaderService {
         
         // Initialize cluster membership service
         this.membershipService = new ClusterMembershipService();
+        
+        // Initialize JobManager with strategies from config
+        setJobManager(config.getSplittingStrategy(), config.getAssignmentStrategy());
+        
+        // Initialize failure detector (monitors worker heartbeats)
+        this.failureDetector = new FailureDetector(
+            this::onWorkerFailed,  // Now delegates to TaskScheduler
+            membershipService
+        );
+        failureDetector.start();
+        log.info("[OK] FailureDetector started for worker health monitoring");
+        
+        // Update TaskExecutor for Leader mode (can submit results directly)
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            this,          // Leader reference (self)
+            true           // isLeader = true
+        );
         
         // Register itself as first node
         membershipService.addNode(this);
@@ -152,9 +217,17 @@ public class NodeImpl implements NodeService, LeaderService {
         
         log.info("[OK] Node {} joined cluster via {}:{}", nodeId, leaderHost, leaderPort);
         
+        // Update TaskExecutor for Worker mode (submits results via RMI to Leader)
+        this.taskExecutor = new TaskExecutor(
+            capabilities,  // Just capabilities, not ExecutionContext
+            leader,        // Leader reference for RMI result submission
+            false          // isLeader = false
+        );
+        
         // Start monitoring Leader's health with periodic cache refresh
         leaderMonitor = new HeartbeatMonitor(
-            leaderNode, 
+            leaderNode,
+            this.nodeId,  // Pass our worker ID for heartbeat identification
             this::onLeaderDied, 
             this::updateClusterCache,  
             "Leader Monitor"
@@ -255,7 +328,13 @@ public class NodeImpl implements NodeService, LeaderService {
             if (leaderMonitor != null) {
                 leaderMonitor.stop();
             }
-            leaderMonitor = new HeartbeatMonitor(leaderNode, this::onLeaderDied, this::updateClusterCache, "Leader Monitor");
+            leaderMonitor = new HeartbeatMonitor(
+                leaderNode,
+                this.nodeId,  // Pass our worker ID
+                this::onLeaderDied,
+                this::updateClusterCache,
+                "Leader Monitor"
+            );
             leaderMonitor.start();
             
             log.info("Successfully reconnected to new Leader");
@@ -282,8 +361,29 @@ public class NodeImpl implements NodeService, LeaderService {
     
     @Override
     public void reportTaskCompletion(String taskId, Object result) throws RemoteException {
+        log.warn("DEPRECATED: reportTaskCompletion() called. Use submitResult(TaskResult) instead.");
         log.info("Task {} completed with result: {}", taskId, result);
-        // TODO
+        // TODO: Remove this method after migration to submitResult()
+    }
+    
+    @Override
+    public void submitResults(List<com.hecaton.task.TaskResult> results) throws RemoteException {
+        if (!isLeader) {
+            throw new RemoteException("This node is not the leader");
+        }
+        
+        if (results == null || results.isEmpty()) {
+            log.warn("Received empty results list");
+            return;
+        }
+        
+        if (jobManager == null) {
+            log.error("JobManager not initialized - cannot process {} results", results.size());
+            throw new RemoteException("Leader not fully initialized");
+        }
+        
+        log.debug("Delegating {} task results to JobManager", results.size());
+        jobManager.submitResults(results);
     }
     
     @Override
@@ -310,6 +410,20 @@ public class NodeImpl implements NodeService, LeaderService {
             })
             .filter(Objects::nonNull)
             .collect(Collectors.toList());
+    }
+    
+    @Override
+    public void ping(String workerId) throws RemoteException {
+        if (!isLeader) {
+            throw new RemoteException("This node is not the leader");
+        }
+        
+        // Delegate to FailureDetector
+        if (failureDetector != null) {
+            failureDetector.ping(workerId);
+        } else {
+            log.warn("FailureDetector not initialized, ignoring ping from {}", workerId);
+        }
     }
     
     /**
@@ -377,8 +491,63 @@ public class NodeImpl implements NodeService, LeaderService {
     }
     
     /**
+     * Callback invoked when a worker is declared dead by FailureDetector.
+     * Delegates to JobManager (facade) for task reassignment.
+     * 
+     * @param workerId ID of the dead worker
+     */
+    private void onWorkerFailed(String workerId) {
+        log.warn("Worker {} declared dead by FailureDetector", workerId);
+        
+        if (jobManager != null) {
+            jobManager.onWorkerFailed(workerId);
+        } else {
+            log.error("JobManager not initialized - cannot reassign tasks from dead worker {}", workerId);
+        }
+    }
+    
+    /**
+     * Initializes JobManager with strategies.
+     * Called during Leader startup.
+     * 
+     * For now deferred - will be configured via setStrategies() method.
+     */
+    private void setJobManager(SplittingStrategy splittingStrategy,
+                                      AssignmentStrategy assignmentStrategy) {
+        if (!isLeader) {
+            throw new IllegalStateException("Only Leader nodes can have JobManager");
+        }
+        
+        // JobManager creates TaskScheduler internally - clean, no circular dependency
+        this.jobManager = new JobManager(
+            splittingStrategy,
+            assignmentStrategy,
+            membershipService
+        );
+        
+        log.info("Task execution strategies configured successfully");
+    }
+    
+    /**
+     * Returns the JobManager instance (only available on Leader after setStrategies()).
+     * 
+     * @return JobManager instance
+     * @throws IllegalStateException if not a Leader or strategies not configured
+     */
+    public JobManager getJobManager() {
+        if (!isLeader) {
+            throw new IllegalStateException("Only Leader nodes have JobManager");
+        }
+        if (jobManager == null) {
+            throw new IllegalStateException("Strategies not configured - call setStrategies() first");
+        }
+        return jobManager;
+    }
+    
+    /**
      * Promotes this node to Leader after winning election.
      * Called by BullyElection when this node has the highest ID among surviving nodes.
+     * Strategies are taken from the ClusterConfig provided at construction.
      * 
      * @throws RemoteException if RMI operations fail
      */
@@ -396,6 +565,17 @@ public class NodeImpl implements NodeService, LeaderService {
             // Initialize cluster membership service
             this.membershipService = new ClusterMembershipService();
             membershipService.addNode(this);  // Add self
+            
+            // Initialize JobManager with strategies from config
+            setJobManager(config.getSplittingStrategy(), config.getAssignmentStrategy());
+            
+            // Initialize failure detector (monitors worker heartbeats)
+            this.failureDetector = new FailureDetector(
+                this::onWorkerFailed,
+                membershipService
+            );
+            failureDetector.start();
+            log.info("[OK] FailureDetector started after promotion to Leader");
             
             // Populate membership with cached nodes from cluster
             // This is critical - new Leader needs to know about other Workers!
@@ -439,6 +619,11 @@ public class NodeImpl implements NodeService, LeaderService {
         // Stop heartbeat monitoring if active
         if (leaderMonitor != null) {
             leaderMonitor.stop();
+        }
+        
+        // Stop failure detector if Leader
+        if (failureDetector != null) {
+            failureDetector.stop();
         }
         
         // Shutdown discovery strategy if active
@@ -503,5 +688,26 @@ public class NodeImpl implements NodeService, LeaderService {
         } catch (NumberFormatException e) {
             return 5001;  // Default port
         }
+    }
+
+    @Override
+    public NodeCapabilities getCapabilities() throws RemoteException {
+        return this.capabilities;
+    }
+    
+    @Override
+    public void executeTasks(java.util.List<com.hecaton.task.Task> tasks) throws RemoteException {
+        // Delegate to TaskExecutor (uses thread pool for parallel execution)
+        taskExecutor.receiveTasks(tasks);
+    }
+    
+    @Override
+    public void cancelJob(String jobId) throws RemoteException {
+        log.info("Received cancelJob({}) request from Leader", jobId);
+        
+        // Delegate to TaskExecutor to interrupt running tasks
+        int cancelledCount = taskExecutor.cancelJob(jobId);
+        
+        log.info("Cancelled {} tasks for job={}", cancelledCount, jobId);
     }
 }

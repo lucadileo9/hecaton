@@ -43,6 +43,7 @@ mvn exec:java -Dexec.mainClass="com.hecaton.manual.<category>.<TestName>"
 
 - **[RMI & Cluster Formation](rmi-cluster.md)** - Basic RMI communication, node registration, cluster setup
 - **[Heartbeat Monitoring](heartbeat.md)** - Heartbeat-based fault detection between Leader and Workers
+- **[Integration Tests](integration-tests.md)** - End-to-end testing with ClusterConfig, job submission, and task execution
 
 ### Future (Coming Soon)
 

@@ -1,6 +1,5 @@
 package com.hecaton.manual.node;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import com.hecaton.node.NodeImpl;
 
 /**
@@ -28,9 +27,8 @@ public class TestLeaderNode {
         System.out.println("========================================");
         System.out.println();
         
-        // Create and start Leader on port 5001
-        // Create election strategy (empty cache initially, will be populated when Workers join)
-        NodeImpl leader = new NodeImpl("localhost", 5001, Algorithm.BULLY);
+        // Create and start Leader on port 5001 with default config
+        NodeImpl leader = new NodeImpl("localhost", 5001);
         leader.startAsLeader();
         
         System.out.println();

@@ -1,6 +1,7 @@
 package com.hecaton.rmi;
 
 import com.hecaton.discovery.NodeInfo;
+import com.hecaton.task.TaskResult;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
@@ -23,8 +24,22 @@ public interface LeaderService extends Remote {
      * @param taskId ID of the completed task
      * @param result Result (can be null if failed)
      * @throws RemoteException if RMI communication fails
+     * @deprecated Use {@link #submitResult(TaskResult)} instead for type-safe result reporting
      */
+    @Deprecated
     void reportTaskCompletion(String taskId, Object result) throws RemoteException;
+    
+    /**
+     * Worker submits task result after completion.
+     * Internally handled by TaskScheduler.
+     * 
+     * This method replaces the deprecated reportTaskCompletion() with a type-safe approach
+     * using TaskResult objects that include status, data, and error information.
+     * 
+     * @param result the completed task result (SUCCESS, NOT_FOUND, FAILURE, or CANCELLED)
+     * @throws RemoteException if RMI communication fails
+     */
+    void submitResults(List<TaskResult> results) throws RemoteException;
     
     /**
      * Returns the list of all nodes in the cluster.
@@ -35,4 +50,14 @@ public interface LeaderService extends Remote {
      * @throws RemoteException if RMI communication fails or node is not Leader
      */
     List<NodeInfo> getClusterNodes() throws RemoteException;
+    
+    /**
+     * Heartbeat ping from worker to signal it's alive.
+     * Workers call this periodically to report their health status.
+     * Internally handled by FailureDetector on the Leader.
+     * 
+     * @param workerId unique ID of the worker sending the ping
+     * @throws RemoteException if RMI communication fails
+     */
+    void ping(String workerId) throws RemoteException;
 }

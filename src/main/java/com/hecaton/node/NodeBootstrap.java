@@ -1,6 +1,5 @@
 package com.hecaton.node;
 
-import com.hecaton.election.ElectionStrategyFactory.Algorithm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +47,7 @@ public class NodeBootstrap {
             }
             
             // Create election strategy and node
-            NodeImpl node = new NodeImpl("localhost", port, Algorithm.BULLY);
+            NodeImpl node = new NodeImpl("localhost", port);
             
             // Start as Leader or join as Worker
             if (isLeader) {

@@ -2,6 +2,10 @@ package com.hecaton.rmi;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import java.util.List;
+
+import com.hecaton.node.NodeCapabilities;
+import com.hecaton.task.Task;
 
 /**
  * Remote interface exposed by each node.
@@ -62,4 +66,44 @@ public interface NodeService extends Remote {
      */
     void receiveCoordinatorMessage(String newLeaderId, String leaderHost, int leaderPort) 
         throws RemoteException;
+
+    /**
+     * Returns the hardware capabilities of this node.
+     * @return NodeCapabilities object describing CPU, RAM, Disk
+     * @throws RemoteException if RMI communication fails
+     * 
+     * N.B.: This method return a sort of run-time snapshot of the node capabilities, that
+     * are subsequently stored in the ExecutionContext at the time of task execution.
+     * 
+     */
+    NodeCapabilities getCapabilities() throws RemoteException;
+    
+    /**
+     * Receives a batch of tasks from the Leader and executes them.
+     * Internally handled by TaskExecutor (thread pool execution).
+     * 
+     * Workers execute tasks asynchronously and call leader.submitResult() for each completion.
+     * This method returns immediately after queuing tasks; actual execution happens in background.
+     * 
+     * @param tasks list of tasks to execute
+     * @throws RemoteException if RMI communication fails
+     */
+    void executeTasks(List<Task> tasks) throws RemoteException;
+    
+    /**
+     * Cancels all running tasks for the specified job (early termination).
+     * 
+     * Called by Leader when a result is found and the job supports early termination.
+     * Worker should:
+     *   1. Interrupt all threads executing tasks for this jobId
+     *   2. Remove pending tasks from queue
+     *   3. Stop processing new tasks for this job
+     * 
+     * This is a best-effort operation. Tasks that have already completed or are 
+     * non-interruptible may not be cancelled.
+     * 
+     * @param jobId ID of the job to cancel
+     * @throws RemoteException if RMI communication fails
+     */
+    void cancelJob(String jobId) throws RemoteException;
 }
