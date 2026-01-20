@@ -78,8 +78,9 @@ public class PasswordCrackJob extends AbstractJob {
         
         this.targetHash = targetHash.toLowerCase(); // Normalize to lowercase
         this.charset = charset;
-        this.passwordLength = passwordLength;
-        this.totalCombinations = calculateTotalCombinations(charset.length(), passwordLength);
+        this.minLength = minLength;
+        this.maxLength = maxLength;
+        this.totalCombinations = calculateTotalCombinationsRange(charset.length(), minLength, maxLength);
         
         log.debug("PasswordCrackJob created: hash={}, charset={} chars, length range=[{},{}], combinations={}", 
                   targetHash.substring(0, 8) + "...", charset.length(), minLength, maxLength, totalCombinations);
@@ -98,18 +99,36 @@ public class PasswordCrackJob extends AbstractJob {
     }
     
     /**
-     * Calculates total combinations (base^length).
-     * Uses Math.pow and checks for overflow.
+     * Calculates total combinations across all password lengths.
+     * Sum of base^minLen + base^(minLen+1) + ... + base^maxLen
+     * 
+     * Example: charset=26, minLen=1, maxLen=3
+     *   26^1 + 26^2 + 26^3 = 26 + 676 + 17,576 = 18,278
      */
-    private long calculateTotalCombinations(int base, int length) {
-        double result = Math.pow(base, length);
+    private long calculateTotalCombinationsRange(int base, int minLen, int maxLen) {
+        long total = 0;
         
-        if (result > Long.MAX_VALUE) {
-            throw new IllegalArgumentException(
-                String.format("Keyspace too large: %d^%d exceeds Long.MAX_VALUE", base, length));
+        for (int len = minLen; len <= maxLen; len++) {
+            double combinations = Math.pow(base, len);
+            
+            if (combinations > Long.MAX_VALUE) {
+                throw new IllegalArgumentException(
+                    String.format("Keyspace too large at length %d: %d^%d exceeds Long.MAX_VALUE", 
+                                  len, base, len));
+            }
+            
+            long lenCombinations = (long) combinations;
+            
+            // Check for overflow when adding
+            if (total > Long.MAX_VALUE - lenCombinations) {
+                throw new IllegalArgumentException(
+                    String.format("Total keyspace too large: overflow at length %d", len));
+            }
+            
+            total += lenCombinations;
         }
         
-        return (long) result;
+        return total;
     }
     
     @Override
