@@ -25,15 +25,24 @@ public abstract class AbstractTask implements Task {
     private final String taskId;
     
     /**
-     * Creates a new task.
+     * Creates a new task with auto-generated UUID.
      * 
      * @param jobId ID of the parent job
-     * @param taskId Unique task ID
      */
     protected AbstractTask(String jobId) {
         this.jobId = jobId;
-        // this.taskId = "task-" + System.currentTimeMillis();
         this.taskId = UUID.randomUUID().toString();
+    }
+    
+    /**
+     * Creates a new task with explicit taskId.
+     * 
+     * @param jobId ID of the parent job
+     * @param taskId Unique task ID (e.g., "task-0", "task-1")
+     */
+    protected AbstractTask(String jobId, String taskId) {
+        this.jobId = jobId;
+        this.taskId = taskId;
     }
     
     @Override
