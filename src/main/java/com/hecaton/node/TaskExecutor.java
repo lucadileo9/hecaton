@@ -12,7 +12,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 /**
  * TaskExecutor is responsible for executing tasks on a worker node using a thread pool.
@@ -222,7 +221,11 @@ public class TaskExecutor {
             } catch (InterruptedException e) {
                 log.warn("Task processing interrupted", e);
                 Thread.currentThread().interrupt();
-            } catch (Exception e) {
+            } catch (CancellationException e) {
+                log.warn("Task was cancelled", e);
+            }
+                 
+            catch (Exception e) {
                 log.error("Error processing task results", e);
             }
         }, threadPool);
@@ -239,19 +242,27 @@ public class TaskExecutor {
         int cancelledCount = 0;
         
         for (Future<TaskResult> future : futures) { // for each submitted future (aka: task, that may be running)
-            Task task = runningTasks.get(future);
-            
-            if (task != null  // make sure task is still running
-                && task.getJobId().equals(jobId) // and matches the jobId we want to cancel
-            ) {
-                if (!future.isDone()) { // only if not already completed
-                    boolean cancelled = future.cancel(true);  // Interrupt thread
-                    if (cancelled) {
-                        cancelledCount++;
-                        runningTasks.remove(future);
-                        log.debug("Cancelled task={}", task.getTaskId());
+            try{ 
+                Task task = runningTasks.get(future);
+                
+                if (task != null  // make sure task is still running
+                    && task.getJobId().equals(jobId) // and matches the jobId we want to cancel
+                ) {
+                    if (!future.isDone()) { // only if not already completed
+                        boolean cancelled = future.cancel(true);  // Interrupt thread
+                        if (cancelled) {
+                            cancelledCount++;
+                            runningTasks.remove(future);
+                            log.debug("Cancelled task={}", task.getTaskId());
+                        }
                     }
                 }
+            } catch (CancellationException e) {
+                // Task was already cancelled
+                log.debug("Task future was already cancelled", e);
+                continue;
+            } catch (Exception e) {
+                log.error("Error cancelling task future", e);
             }
         }
         
