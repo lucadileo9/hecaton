@@ -34,6 +34,9 @@ public class PasswordCrackTask extends AbstractTask {
     // Interruption check frequency (balance responsiveness vs performance)
     private static final int INTERRUPTION_CHECK_INTERVAL = 1000;
     
+    // Progress reporting frequency (log every N checks)
+    private static final int PROGRESS_REPORT_INTERVAL = 10000;
+    
     private final String targetHash;
     private final String charset;
     private final int passwordLength;
@@ -93,6 +96,13 @@ public class PasswordCrackTask extends AbstractTask {
                                   getTaskId(), combinationsChecked);
                         return TaskResult.cancelled(getJobId(), getTaskId());
                     }
+                }
+                
+                // Progress reporting (useful for long-running tasks)
+                if (combinationsChecked % PROGRESS_REPORT_INTERVAL == 0) {
+                    double progress = (combinationsChecked * 100.0) / totalCombinations;
+                    log.debug("[PROGRESS] {} - {}/{} checks ({:.1f}%)", 
+                              getTaskId(), combinationsChecked, totalCombinations, progress);
                 }
                 
                 // Convert index to password string
