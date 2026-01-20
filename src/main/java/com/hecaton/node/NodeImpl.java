@@ -12,8 +12,6 @@ import com.hecaton.rmi.LeaderService;
 import com.hecaton.scheduler.JobManager;
 import com.hecaton.task.Job;
 import com.hecaton.task.JobResult;
-import com.hecaton.task.Task;
-import com.hecaton.task.TaskResult;
 import com.hecaton.task.assignment.AssignmentStrategy;
 import com.hecaton.task.splitting.SplittingStrategy;
 import org.slf4j.Logger;
