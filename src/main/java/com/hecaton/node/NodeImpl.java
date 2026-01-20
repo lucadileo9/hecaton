@@ -10,6 +10,8 @@ import com.hecaton.monitor.HeartbeatMonitor;
 import com.hecaton.rmi.NodeService;
 import com.hecaton.rmi.LeaderService;
 import com.hecaton.scheduler.JobManager;
+import com.hecaton.task.Job;
+import com.hecaton.task.JobResult;
 import com.hecaton.task.Task;
 import com.hecaton.task.TaskResult;
 import com.hecaton.task.assignment.AssignmentStrategy;
@@ -709,5 +711,26 @@ public class NodeImpl implements NodeService, LeaderService {
         int cancelledCount = taskExecutor.cancelJob(jobId);
         
         log.info("Cancelled {} tasks for job={}", cancelledCount, jobId);
+    }
+
+    @Override
+    public JobResult submitJob(Job job) throws RemoteException {
+        if (!isLeader) {
+            throw new RemoteException("This node is not the leader");
+        }
+        
+        if (jobManager == null) {
+            throw new RemoteException("JobManager not initialized");
+        }
+        
+        log.info("Submitting new job {} to JobManager", job.getJobId());
+        JobResult result = null;
+        try {
+            return jobManager.submitJob(job);
+        } catch (InterruptedException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return result;
     }
 }
