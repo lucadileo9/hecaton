@@ -49,7 +49,7 @@ public class TestEarlyTermination {
         System.out.println("╚═══════════════════════════════════════════════════════════╝\n");
         
         // Create config with defaults
-        ClusterConfig config = new ClusterConfig.Builder().splittingStrategy(new DynamicSplitting(100))
+        ClusterConfig config = new ClusterConfig.Builder().splittingStrategy(new DynamicSplitting(4))
         .build();
         System.out.println("Config: " + config + "\n");
         
@@ -76,16 +76,17 @@ public class TestEarlyTermination {
         System.out.println("║  Submitting Job: Crack MD5 Password                      ║");
         System.out.println("╚═══════════════════════════════════════════════════════════╝\n");
         
-        // MD5 of "abc"
-        String targetHash = "900150983cd24fb0d6963f7d28e17f72";
+        // MD5 of "nnnnnnnn" is "6eff2276c4f875c14c569fbc11e4c2a0 "
+        String passwordToFind = "nnnnnnnn";
+        String targetHash = "6eff2276c4f875c14c569fbc11e4c2a0";
         String charset = PasswordCrackJob.CHARSET_LOWERCASE;
-        int maxLength = 8;  // Search 1-8 character passwords
-        
-        System.out.println("Target: MD5('abc') = " + targetHash);
+        int maxLength = passwordToFind.length(); 
+                
+        System.out.println("Target: MD5('" + passwordToFind + "') = " + targetHash);
         System.out.println("Charset: lowercase (a-z)");
         System.out.println("Length: 1-" + maxLength + " characters");
         System.out.println("Total combinations: " + calculateCombinations(26, maxLength));
-        System.out.println("Expected password: 'abc' (should be found VERY quickly!)\n");
+        System.out.println("Expected password: '" + passwordToFind + "' (should be found VERY quickly!)\n");
         
         System.out.println("╔═══════════════════════════════════════════════════════════╗");
         System.out.println("║  WATCH FOR EARLY TERMINATION LOGS:                       ║");
@@ -109,8 +110,8 @@ public class TestEarlyTermination {
         System.out.println("Job ID:        " + result.getJobId());
         System.out.println("Status:        " + (result.isSuccess() ? "[OK] SUCCESS" : "[ERROR] FAILED"));
         System.out.println("Password:      " + result.getData());
-        System.out.println("Expected:      abc");
-        System.out.println("Match:         " + ("abc".equals(result.getData()) ? "[OK] YES" : "[ERROR] NO"));
+        System.out.println("Expected:      " + passwordToFind);
+        System.out.println("Match:         " + (passwordToFind.equals(result.getData()) ? "[OK] YES" : "[ERROR] NO"));
         System.out.println("Time:          " + executionTime + " ms");
         System.out.println("Tasks Total:   " + result.getTotalTasks());
         System.out.println("Tasks Done:    " + result.getCompletedTasks());
@@ -130,22 +131,22 @@ public class TestEarlyTermination {
         System.out.println("║  VERIFICATION                                             ║");
         System.out.println("╚═══════════════════════════════════════════════════════════╝");
         
-        if (result.isSuccess() && "abc".equals(result.getData())) {
-            System.out.println("✅ Password found correctly!");
+        if (result.isSuccess() && passwordToFind.equals(result.getData())) {
+            System.out.println("[OK] Password found correctly!");
         } else {
-            System.out.println("❌ Password NOT found or incorrect!");
+            System.out.println("[NO] Password NOT found or incorrect!");
         }
         
         if (cancelledTasks > 0) {
-            System.out.println("✅ Early termination worked (tasks cancelled)");
+            System.out.println("[OK] Early termination worked (tasks cancelled)");
         } else {
-            System.out.println("❌ Early termination did NOT work (no cancellations)");
+            System.out.println("[NO] Early termination did NOT work (no cancellations)");
         }
         
         if (executionTime < 30000) {  // Should complete in < 30 seconds
-            System.out.println("✅ Fast execution (early termination effective)");
+            System.out.println("[OK] Fast execution (early termination effective)");
         } else {
-            System.out.println("⚠ Slow execution (may have searched entire space)");
+            System.out.println("[NO] Slow execution (may have searched entire space)");
         }
         
         System.out.println("\nTest complete. Check logs above for early termination messages.");
