@@ -352,13 +352,21 @@ public class TaskScheduler {
                 String taskId = entry.getKey();
                 entry.setValue(TaskResult.cancelled(jobId, taskId));
                 cancelledCount++;
-                
-                // Decrement pending counter for each cancelled task
-                ctx.pendingTasks.decrementAndGet();
             }
         }
         
-        logger.info("[EARLY TERMINATION] Marked {} tasks as CANCELLED for job={}", cancelledCount, jobId); 
+        logger.info("[EARLY TERMINATION] Marked {} tasks as CANCELLED for job={}", cancelledCount, jobId);
+        
+        // Decrement pending counter by number of cancelled tasks
+        // This unblocks waitForCompletion() in JobManager
+        int remaining = ctx.pendingTasks.addAndGet(-cancelledCount);
+        logger.debug("[EARLY TERMINATION] Decremented pendingTasks by {}, remaining={}", cancelledCount, remaining);
+        
+        // Check if job is now complete (all tasks accounted for)
+        if (remaining == 0) {
+            logger.info("[EARLY TERMINATION] Job {} COMPLETE (all tasks finished/cancelled)", jobId);
+            notifyJobComplete(jobId, ctx);
+        } 
     }
     
     /**
