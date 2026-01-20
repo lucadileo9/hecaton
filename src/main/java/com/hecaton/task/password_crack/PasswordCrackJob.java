@@ -137,38 +137,53 @@ public class PasswordCrackJob extends AbstractJob {
             throw new IllegalArgumentException("numTasks must be positive: " + numTasks);
         }
         
-        log.info("Splitting job {} into {} tasks (total combinations: {})", 
-                 getJobId(), numTasks, totalCombinations);
+        log.info("Splitting job {} into tasks (total combinations: {}, length range: [{}, {}])", 
+                 getJobId(), totalCombinations, minLength, maxLength);
         
         List<Task> tasks = new ArrayList<>();
-        long rangeSize = totalCombinations / numTasks;
+        int taskCounter = 0;
         
-        for (int i = 0; i < numTasks; i++) {
-            long startIndex = i * rangeSize;
-            long endIndex;
+        // Iterate through lengths from shortest to longest (more efficient)
+        for (int len = minLength; len <= maxLength; len++) {
+            long lenCombinations = (long) Math.pow(charset.length(), len);
             
-            // Last task gets remainder
-            if (i == numTasks - 1) {
-                endIndex = totalCombinations - 1;
-            } else {
-                endIndex = (i + 1) * rangeSize - 1;
+            // Distribute this length's combinations across workers
+            // Use min(numTasks, lenCombinations) to avoid empty tasks
+            int tasksForLength = (int) Math.min(numTasks, lenCombinations);
+            long rangeSize = lenCombinations / tasksForLength;
+            
+            log.debug("  Length {} -> {} combinations, {} tasks", len, lenCombinations, tasksForLength);
+            
+            for (int i = 0; i < tasksForLength; i++) {
+                long startIndex = i * rangeSize;
+                long endIndex;
+                
+                // Last task for this length gets remainder
+                if (i == tasksForLength - 1) {
+                    endIndex = lenCombinations - 1;
+                } else {
+                    endIndex = (i + 1) * rangeSize - 1;
+                }
+                
+                String taskId = String.format("task-len%d-%d", len, i);
+                tasks.add(new PasswordCrackTask(
+                    getJobId(), 
+                    taskId, 
+                    targetHash, 
+                    charset, 
+                    len,  // Current length
+                    startIndex, 
+                    endIndex
+                ));
+                
+                log.debug("    {} -> range [{}, {}] ({} combinations)", 
+                          taskId, startIndex, endIndex, endIndex - startIndex + 1);
+                
+                taskCounter++;
             }
-            
-            String taskId = "task-" + i;
-            tasks.add(new PasswordCrackTask(
-                getJobId(), 
-                taskId, 
-                targetHash, 
-                charset, 
-                passwordLength, 
-                startIndex, 
-                endIndex
-            ));
-            
-            log.debug("  {} -> range [{}, {}] ({} combinations)", 
-                      taskId, startIndex, endIndex, endIndex - startIndex + 1);
         }
         
+        log.info("Created {} total tasks across {} password lengths", taskCounter, maxLength - minLength + 1);
         return tasks;
     }
     
