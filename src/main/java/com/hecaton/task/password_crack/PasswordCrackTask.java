@@ -57,7 +57,7 @@ public class PasswordCrackTask extends AbstractTask {
     public PasswordCrackTask(String jobId, String taskId, String targetHash, 
                             String charset, int passwordLength, 
                             long startIndex, long endIndex) {
-        super(jobId);  // Call AbstractTask constructor
+        super(jobId, taskId);  // Pass explicit taskId
         this.targetHash = targetHash;
         this.charset = charset;
         this.passwordLength = passwordLength;
