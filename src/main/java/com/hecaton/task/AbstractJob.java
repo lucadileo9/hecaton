@@ -20,6 +20,10 @@ public abstract class AbstractJob implements Job {
     
     private String jobId;
     
+    public AbstractJob() {
+        setJobId();
+    }
+
     @Override
     public String getJobId() {
         return jobId;
