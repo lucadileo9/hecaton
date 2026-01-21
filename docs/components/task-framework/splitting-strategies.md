@@ -75,9 +75,16 @@ sequenceDiagram
     SplittingStrategy-->>JobManager: List<Task>
     deactivate SplittingStrategy
     JobManager->>AssignmentStrategy: assign(tasks, workers)
+    JobManager->>AssignmentStrategy: assign(tasks, workers)
+    activate AssignmentStrategy
+    AssignmentStrategy->>AssignmentStrategy: Calculate distribution
+    AssignmentStrategy-->>JobManager: Map<WorkerId, List<Task>>
+    deactivate AssignmentStrategy
+    
+    JobManager->>TaskScheduler: scheduleTasks(jobId, assignments)
+
     deactivate JobManager
 ```
-
 ---
 
 ## Strategy Interface
