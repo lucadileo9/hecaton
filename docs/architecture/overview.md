@@ -13,6 +13,7 @@ Hecaton is a P2P distributed computing system that transforms heterogeneous comp
   - [Heartbeat Monitoring & Election Trigger](#3-heartbeat-monitoring--election-trigger)
   - [Worker Failure & Task Reassignment](#4-worker-failure--task-reassignment)
   - [Bully Election Algorithm](#5-bully-election-algorithm)
+  - [Cluster Discovery & Join](#6-cluster-discovery--join)
 - [Testing Strategy](#testing-strategy)
 - [Logging Configuration](#logging-configuration)
 
@@ -664,6 +665,101 @@ sequenceDiagram
     
     Note over A,C: Cluster reformed with C as Leader
 ```
+
+---
+
+### 6. Cluster Discovery & Join
+
+Workers can join the cluster in two ways: **manual join** (knowing Leader's address) or **automatic discovery** (UDP broadcast).
+
+#### Manual Join
+
+When the Worker knows the Leader's address (e.g., via CLI `--join localhost:5001`):
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant L as Leader
+    participant CMS as ClusterMembershipService
+    participant HM as HeartbeatMonitor
+    
+    Note over W: CLI: --join localhost:5001
+    
+    W->>W: new NodeImpl(host, port)
+    W->>W: joinCluster("localhost", 5001)
+    
+    rect rgb(40, 40, 40)
+        Note over W,L: Phase 1: RMI Connection
+        W->>L: LocateRegistry.getRegistry("localhost", 5001)
+        W->>L: registry.lookup("leader")
+        Note over W: Obtains LeaderService stub
+    end
+    
+    rect rgb(25, 25, 25)
+        Note over W,CMS: Phase 2: Registration
+        W->>L: registerNode(this)
+        L->>CMS: addNode(worker)
+        L-->>W: ✓ Registered
+    end
+    
+    rect rgb(10, 10, 10)
+        Note over W,HM: Phase 3: Start Monitoring
+        W->>HM: new HeartbeatMonitor(leader)
+        W->>HM: start()
+        loop Every 5 seconds
+            HM->>L: RMI: ping()
+        end
+    end
+    
+    Note over W: Worker now in cluster
+```
+
+#### Automatic Discovery (UDP Broadcast)
+
+When Leader address is unknown, Workers use UDP broadcast discovery:
+
+```mermaid
+sequenceDiagram
+    participant L as Leader
+    participant UDP_L as UdpDiscoveryService<br/>(Broadcaster)
+    participant Network as UDP Network<br/>255.255.255.255:9876
+    participant UDP_W as UdpDiscoveryService<br/>(Listener)
+    participant W as Worker
+    
+    Note over L: Leader startup
+    L->>UDP_L: new UdpDiscoveryService(port, nodeId)
+    L->>UDP_L: startBroadcaster()
+    
+    loop Every 5 seconds
+        UDP_L->>Network: LEADER_ANNOUNCEMENT<br/>{host, port, nodeId}
+    end
+    
+    Note over W: Worker startup with --auto-discover
+    W->>UDP_W: new UdpDiscoveryService()
+    W->>UDP_W: discoverLeader(timeout=5000ms)
+    
+    rect rgb(40, 40, 40)
+        Note over UDP_W,Network: Blocking wait for broadcast
+        UDP_W->>Network: Open socket on port 9876
+        Note over UDP_W: BLOCKING...
+        Network-->>UDP_W: Packet received!
+        UDP_W->>UDP_W: Deserialize → NodeInfo
+    end
+    
+    UDP_W-->>W: NodeInfo(host, port)
+    
+    W->>L: joinCluster(host, port)
+    Note over W,L: Standard join flow
+    
+    Note over W: Worker now in cluster
+```
+
+**Key Points**:
+- **Strategy Pattern**: `LeaderDiscoveryStrategy` interface allows pluggable discovery (UDP, multicast, static config)
+- **Fallback**: If auto-discovery times out, manual join is always available
+- **Port**: Default UDP broadcast port is `9876` (configurable)
+
+**See**: [Discovery Documentation](discovery/overview.md) for implementation details.
 
 ---
 
